@@ -1,0 +1,820 @@
+---
+title: "Troubleshooting"
+description: "Common problems and solutions when working with PruebaETL"
+---
+
+## Overview
+
+This guide documents common issues encountered during the ETL process and their solutions. Each problem includes symptoms, root causes, and step-by-step solutions.
+
+---
+
+## Data Quality Issues
+
+### Problem 1: Caracteres Especiales Mal Codificados
+
+**Symptom:**
+
+Spanish characters appear corrupted in the output:
+- "Raúl Pérez" → "RaÃ°LPA@rez"
+- "José García" → "JosÃ© GarcÃ­a"
+- "Peña" → "PeÃ±a"
+
+**Root Cause:**
+
+Encoding mismatch between source CSV file and Python's file reading. The file may be encoded in Latin-1 or CP1252, but Python defaults to UTF-8.
+
+**Solution:**
+
+1. **Multiple Encoding Attempts:**
+
+   ```python
+   encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+   contenido = None
+   
+   for encoding in encodings:
+       try:
+           with open('clientes_prueba_mas_datos.csv', 'r', encoding=encoding) as f:
+               contenido = list(csv.DictReader(f))
+               print(f"Archivo leído correctamente con codificación: {encoding}")
+               break
+       except UnicodeDecodeError:
+           continue
+   
+   if contenido is None:
+       raise ValueError("No se pudo leer el archivo con ninguna codificación")
+   ```
+
+2. **Write with UTF-8 BOM:**
+
+   ```python
+   with open('clientes_normalizados.csv', 'w', encoding='utf-8-sig', newline='') as f:
+       writer = csv.DictWriter(f, fieldnames=[...])
+       writer.writeheader()
+       writer.writerows(clientes)
+   ```
+
+   The `utf-8-sig` encoding adds a BOM (Byte Order Mark) for Excel compatibility.
+
+**Verification:**
+
+Open the output CSV in Excel or a text editor. Special characters should display correctly:
+- ✅ "Raúl Pérez"
+- ✅ "José García"
+- ✅ "Peña"
+
+<Note>
+  **Location:** `normalizar_datos.py:69-84`, `normalizar_ventas.py:55-69`
+</Note>
+
+---
+
+### Problem 2: Fechas en Múltiples Formatos
+
+**Symptom:**
+
+Dates appear in different formats within the same CSV:
+- "2024-11-23" (ISO format)
+- "11/23/2024" (US format)
+- "23-11-2024" (European format)
+- "23/11/2024" (European format)
+
+**Root Cause:**
+
+Source systems use different date formats. Excel may also reformat dates when saving CSVs.
+
+**Solution:**
+
+Implement flexible date parser that tries multiple formats:
+
+```python
+def normalizar_fecha(fecha_str):
+    """Normaliza diferentes formatos de fecha a YYYY-MM-DD"""
+    if not fecha_str or fecha_str.strip() == '':
+        return None
+    
+    fecha_str = fecha_str.strip()
+    
+    formatos = [
+        '%Y-%m-%d',      # 2024-11-23
+        '%Y/%m/%d',      # 2024/11/23
+        '%d/%m/%Y',      # 23/11/2024
+        '%d-%m-%Y',      # 23-11-2024
+        '%m/%d/%Y',      # 11/23/2024
+        '%Y-%d-%m',      # 2024-23-11
+        '%m-%d-%Y',      # 11-23-2024
+    ]
+    
+    for formato in formatos:
+        try:
+            fecha = datetime.strptime(fecha_str, formato)
+            return fecha.strftime('%Y-%m-%d')  # Always output ISO format
+        except ValueError:
+            continue
+    
+    return None  # If no format matches
+```
+
+**Output:**
+
+All dates normalized to ISO format: `YYYY-MM-DD`
+
+**Verification:**
+
+```python
+print(normalizar_fecha("2024-11-23"))   # 2024-11-23
+print(normalizar_fecha("23/11/2024"))   # 2024-11-23
+print(normalizar_fecha("11-23-2024"))   # 2024-11-23
+print(normalizar_fecha("invalid"))      # None
+```
+
+<Warning>
+  Ambiguous dates like "01/02/2024" may be interpreted differently depending on format order. Consider data source to determine if DD/MM or MM/DD is more likely.
+</Warning>
+
+<Note>
+  **Location:** `normalizar_datos.py:6-31`, `normalizar_ventas.py:5-23`
+</Note>
+
+---
+
+### Problem 3: Valores Nulos y Vacíos
+
+**Symptom:**
+
+CSV contains various representations of missing data:
+- Empty strings: `""`
+- Whitespace: `"   "`
+- "N/A" or "n/a"
+- NULL values in numeric fields
+
+**Root Cause:**
+
+Different systems represent missing data differently. Excel may export NULL as empty string.
+
+**Solution:**
+
+1. **Text Fields - Return None:**
+
+   ```python
+   def limpiar_texto(texto):
+       if not texto:
+           return None
+       
+       texto = texto.strip()
+       texto = re.sub(r'\s+', ' ', texto)  # Multiple spaces → single space
+       
+       if texto == '':
+           return None
+       
+       return texto
+   ```
+
+2. **Numeric Fields - Handle N/A:**
+
+   ```python
+   def normalizar_numero(numero_str):
+       if not numero_str or numero_str.strip() == '' or numero_str.upper() == 'N/A':
+           return None
+       
+       numero_str = numero_str.replace(',', '').replace(' ', '').strip()
+       
+       try:
+           return float(numero_str)
+       except ValueError:
+           return None
+   ```
+
+3. **Validation - Check Required Fields:**
+
+   ```python
+   # For clientes: nombre, ciudad, segmento required
+   if (nombre or ciudad) and segmento:
+       # Provide defaults for missing required fields
+       if not nombre:
+           nombre = f"Cliente {cliente_id}"
+       if not ciudad:
+           ciudad = "Sin especificar"
+       
+       clientes.append({...})
+   ```
+
+   ```python
+   # For ventas: cliente_id, total, moneda, canal required
+   if cliente_id and total is not None and moneda and canal:
+       ventas.append({...})
+   else:
+       continue  # Skip invalid record
+   ```
+
+**SQL Handling:**
+
+```python
+# Convert Python None to SQL NULL
+fecha = cliente['fecha_registro'] if cliente['fecha_registro'] else 'NULL'
+if fecha != 'NULL':
+    fecha = f"'{fecha}'"
+
+sql = f"INSERT INTO clientes (..., fecha_registro) VALUES (..., {fecha});"
+```
+
+<Note>
+  **Location:** `normalizar_datos.py:33-46, 47-57, 108-123`
+</Note>
+
+---
+
+### Problem 4: Números con Formato de Texto
+
+**Symptom:**
+
+Numeric fields contain text formatting:
+- "1,403.70" (thousands separator)
+- "1 403.70" (space separator)
+- "N/A" (missing value)
+- "$1403.70" (currency symbol)
+
+**Root Cause:**
+
+Excel and other tools export numbers with locale-specific formatting.
+
+**Solution:**
+
+1. **Strip Formatting:**
+
+   ```python
+   def normalizar_numero(numero_str):
+       if not numero_str or numero_str.strip() == '' or numero_str.upper() == 'N/A':
+           return None
+       
+       # Remove commas and spaces
+       numero_str = numero_str.replace(',', '').replace(' ', '').strip()
+       
+       try:
+           return float(numero_str)
+       except ValueError:
+           return None
+   ```
+
+2. **Use DECIMAL in SQL:**
+
+   ```sql
+   CREATE TABLE ventas (
+       venta_id INT PRIMARY KEY,
+       total DECIMAL(18,2) NOT NULL,  -- Exact precision for money
+       ...
+   );
+   ```
+
+**Examples:**
+
+```python
+print(normalizar_numero("1,403.70"))    # 1403.7
+print(normalizar_numero("1 403.70"))    # 1403.7
+print(normalizar_numero("1403.70"))     # 1403.7
+print(normalizar_numero("N/A"))         # None
+print(normalizar_numero("$1403.70"))    # None (currency symbol not handled)
+```
+
+<Warning>
+  Currency symbols are NOT automatically removed. Pre-process data to remove them if present.
+</Warning>
+
+**SQL Insert:**
+
+```python
+total = venta['total']  # Already converted to float
+sql = f"INSERT INTO ventas (..., total) VALUES (..., {total});"
+# Result: INSERT INTO ventas (..., total) VALUES (..., 1403.70);
+```
+
+<Note>
+  **Location:** `normalizar_datos.py:47-57`, `normalizar_ventas.py:37-46`
+</Note>
+
+---
+
+### Problem 5: Redundancia de Datos
+
+**Symptom:**
+
+- "La Romana" appears 50+ times in clientes CSV
+- "Corporativo" segment repeated 100+ times
+- CSV files are very large (10+ MB for small datasets)
+- Slow query performance
+
+**Root Cause:**
+
+Denormalized data structure repeats the same values many times.
+
+**Impact:**
+- Storage waste: ~80% redundancy
+- Update anomalies: Changing "La Romana" requires updating 50+ rows
+- Performance: Indexing on long text strings is slow
+
+**Solution:**
+
+Relational normalization with master tables:
+
+1. **Extract Unique Values:**
+
+   ```python
+   # Build sets of unique values
+   ciudades_set = set()
+   segmentos_set = set()
+   
+   for row in contenido:
+       ciudad = limpiar_texto(row.get('ciudad', ''))
+       segmento = limpiar_texto(row.get('segmento', ''))
+       
+       if ciudad:
+           ciudades_set.add(ciudad)
+       if segmento:
+           segmentos_set.add(segmento)
+   ```
+
+2. **Create Master Tables:**
+
+   ```python
+   # Create ciudades table
+   ciudades = [{'ciudad_id': i+1, 'nombre': ciudad} 
+               for i, ciudad in enumerate(sorted(ciudades_set))]
+   
+   # Create segmentos table
+   segmentos = [{'segmento_id': i+1, 'nombre': segmento} 
+                for i, segmento in enumerate(sorted(segmentos_set))]
+   ```
+
+3. **Create Mapping:**
+
+   ```python
+   # Create lookup dictionaries
+   ciudad_map = {ciudad['nombre']: ciudad['ciudad_id'] 
+                 for ciudad in ciudades}
+   segmento_map = {segmento['nombre']: segmento['segmento_id'] 
+                   for segmento in segmentos}
+   ```
+
+4. **Replace with Foreign Keys:**
+
+   ```python
+   # Replace text with IDs
+   for cliente in clientes:
+       ciudad_id = ciudad_map.get(cliente['ciudad'])
+       segmento_id = segmento_map.get(cliente['segmento'])
+       
+       clientes_normalizados.append({
+           'cliente_id': cliente['cliente_id'],
+           'nombre': cliente['nombre'],
+           'ciudad_id': ciudad_id,      # FK instead of text
+           'segmento_id': segmento_id,  # FK instead of text
+           'fecha_registro': cliente['fecha_registro']
+       })
+   ```
+
+**Database Schema:**
+
+```sql
+-- Master table
+CREATE TABLE ciudades (
+    ciudad_id INT PRIMARY KEY IDENTITY(1,1),
+    nombre NVARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Business table with foreign key
+CREATE TABLE clientes (
+    cliente_id INT PRIMARY KEY,
+    nombre NVARCHAR(255) NOT NULL,
+    ciudad_id INT NOT NULL,
+    CONSTRAINT FK_clientes_ciudad FOREIGN KEY (ciudad_id) 
+        REFERENCES ciudades(ciudad_id)
+);
+
+-- Index for performance
+CREATE INDEX IX_clientes_ciudad_id ON clientes(ciudad_id);
+```
+
+**Benefits:**
+- ✅ Storage: "La Romana" stored once instead of 50+ times
+- ✅ Updates: Change city name in one place
+- ✅ Performance: Integer foreign keys are faster than text
+- ✅ Integrity: Foreign key constraints prevent invalid data
+
+**File Size Reduction:**
+- Before: 10 MB (redundant text)
+- After: 2 MB (normalized with IDs)
+- Reduction: ~80%
+
+<Note>
+  **Location:** `normalizar_datos.py:137-161`, `normalizar_ventas.py:123-145`
+</Note>
+
+---
+
+## Database Issues
+
+### Foreign Key Constraint Violations
+
+**Symptom:**
+
+```
+The INSERT statement conflicted with the FOREIGN KEY constraint "FK_clientes_ciudad". 
+The conflict occurred in database "PruebaTecnicaDNI", table "dbo.ciudades", column 'ciudad_id'.
+```
+
+**Root Cause:**
+
+Inserting into child table (clientes) before parent table (ciudades).
+
+**Solution:**
+
+Insert in dependency order:
+
+1. Master tables (no dependencies):
+   - ciudades
+   - segmentos
+   - canales
+   - monedas
+
+2. Business tables (depend on master tables):
+   - clientes (references ciudades, segmentos)
+
+3. Transaction tables (depend on business tables):
+   - ventas (references clientes, monedas, canales)
+
+```sql
+-- Correct order
+INSERT INTO ciudades ...;
+INSERT INTO segmentos ...;
+INSERT INTO canales ...;
+INSERT INTO monedas ...;
+GO
+
+INSERT INTO clientes ...;  -- Now ciudades and segmentos exist
+GO
+
+INSERT INTO ventas ...;    -- Now clientes, monedas, canales exist
+GO
+```
+
+<Note>
+  **Location:** `crear_base_datos.py:180-253` (enforces correct order)
+</Note>
+
+---
+
+### IDENTITY Insert Issues
+
+**Symptom:**
+
+```
+An explicit value for the identity column in table 'ciudades' can only be specified 
+when a column list is used and IDENTITY_INSERT is ON.
+```
+
+**Root Cause:**
+
+Trying to insert explicit ID values into an IDENTITY column without enabling IDENTITY_INSERT.
+
+**Solution:**
+
+```sql
+-- Enable explicit ID inserts
+SET IDENTITY_INSERT ciudades ON;
+
+-- Insert with explicit IDs
+INSERT INTO ciudades (ciudad_id, nombre) VALUES (1, 'La Romana');
+INSERT INTO ciudades (ciudad_id, nombre) VALUES (2, 'Santo Domingo');
+
+-- Disable explicit ID inserts
+SET IDENTITY_INSERT ciudades OFF;
+GO
+```
+
+<Warning>
+  Only ONE table per database can have IDENTITY_INSERT ON at a time.
+</Warning>
+
+<Note>
+  **Location:** `crear_base_datos.py:189-194` (automatically handles this)
+</Note>
+
+---
+
+### SQL Injection from Special Characters
+
+**Symptom:**
+
+```sql
+INSERT INTO clientes (nombre) VALUES ('O'Brien');
+-- Error: Unclosed quotation mark after 'Brien'.
+```
+
+**Root Cause:**
+
+Single quotes in data break SQL string delimiters.
+
+**Solution:**
+
+Escape single quotes by doubling them:
+
+```python
+nombre = cliente['nombre'].replace("'", "''")
+sql = f"INSERT INTO clientes (nombre) VALUES ('{nombre}');"
+
+# "O'Brien" becomes "O''Brien"
+# Result: INSERT INTO clientes (nombre) VALUES ('O''Brien');
+```
+
+**Applied to All Text Fields:**
+
+```python
+nombre = ciudad['nombre'].replace("'", "''").replace('\n', ' ').replace('\r', ' ')
+sql = f"INSERT INTO ciudades (ciudad_id, nombre) VALUES ({ciudad['ciudad_id']}, '{nombre}');"
+```
+
+<Tip>
+  Also remove newlines (`\n`) and carriage returns (`\r`) to prevent SQL syntax errors.
+</Tip>
+
+<Note>
+  **Location:** `crear_base_datos.py:191, 203, 213, 224, 234, 269-281`
+</Note>
+
+---
+
+## File and Encoding Issues
+
+### FileNotFoundError
+
+**Symptom:**
+
+```
+Error: No se encontró el archivo 'clientes_prueba_mas_datos.csv'
+```
+
+**Root Cause:**
+
+Script executed from wrong directory, or CSV files not present.
+
+**Solution:**
+
+1. **Check Current Directory:**
+
+   ```bash
+   pwd
+   ls *.csv
+   ```
+
+2. **Run from Correct Directory:**
+
+   ```bash
+   cd /path/to/pruebaetl
+   python normalizar_datos.py
+   ```
+
+3. **Verify File Names:**
+
+   ```bash
+   ls -l clientes_prueba_mas_datos.csv
+   ls -l ventas_prueba_mas_datos.csv
+   ```
+
+**Expected Files:**
+- `clientes_prueba_mas_datos.csv` (source data)
+- `ventas_prueba_mas_datos.csv` (source data)
+
+<Note>
+  Scripts use relative paths. Always run from the directory containing the CSV files.
+</Note>
+
+---
+
+### UTF-8 BOM in Excel
+
+**Symptom:**
+
+Excel displays special characters correctly, but other tools show a BOM character (ï»¿) at the start of the file.
+
+**Root Cause:**
+
+UTF-8 BOM (Byte Order Mark) is added for Excel compatibility but may confuse other parsers.
+
+**Solution:**
+
+This is intentional behavior:
+
+```python
+# Writing with BOM for Excel
+with open('output.csv', 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=[...])
+    writer.writeheader()
+    writer.writerows(data)
+```
+
+**When to Use:**
+- ✅ Use `utf-8-sig` when files will be opened in Excel
+- ✅ Use `utf-8` when files will be parsed by other systems
+
+**Reading BOM Files:**
+
+```python
+# Python's csv module handles BOM automatically
+with open('output.csv', 'r', encoding='utf-8-sig') as f:
+    reader = csv.DictReader(f)
+    data = list(reader)
+```
+
+<Note>
+  **Location:** All CSV write operations use `utf-8-sig`
+</Note>
+
+---
+
+## Performance Issues
+
+### Slow CSV Processing
+
+**Symptom:**
+
+Processing large CSV files (100K+ rows) takes several minutes.
+
+**Root Cause:**
+
+- Inefficient looping
+- Multiple file reads
+- No batch processing
+
+**Solution:**
+
+1. **Read Entire File Once:**
+
+   ```python
+   # Good: Read once
+   with open('input.csv', 'r', encoding='utf-8') as f:
+       contenido = list(csv.DictReader(f))
+   
+   for row in contenido:
+       # Process
+   ```
+
+   ```python
+   # Bad: Read multiple times
+   for i in range(count):
+       with open('input.csv', 'r', encoding='utf-8') as f:
+           # Read entire file each iteration
+   ```
+
+2. **Use Sets for Unique Values:**
+
+   ```python
+   # Good: O(1) lookup
+   ciudades_set = set()
+   ciudades_set.add(ciudad)
+   ```
+
+   ```python
+   # Bad: O(n) lookup
+   ciudades_list = []
+   if ciudad not in ciudades_list:  # Slow for large lists
+       ciudades_list.append(ciudad)
+   ```
+
+3. **Batch SQL Inserts:**
+
+   ```python
+   # Write all INSERTs to file, then execute once in SQL Server
+   with open('crear_base_datos.sql', 'w', encoding='utf-8') as f:
+       for cliente in clientes:
+           f.write(f"INSERT INTO clientes (...) VALUES (...);\n")
+   ```
+
+---
+
+### Slow Database Queries
+
+**Symptom:**
+
+Queries on ventas table take several seconds.
+
+**Root Cause:**
+
+Missing indexes on foreign keys and frequently filtered columns.
+
+**Solution:**
+
+Create indexes on:
+
+```sql
+-- Foreign keys
+CREATE INDEX IX_clientes_ciudad_id ON clientes(ciudad_id);
+CREATE INDEX IX_clientes_segmento_id ON clientes(segmento_id);
+CREATE INDEX IX_ventas_cliente_id ON ventas(cliente_id);
+CREATE INDEX IX_ventas_moneda_id ON ventas(moneda_id);
+CREATE INDEX IX_ventas_canal_id ON ventas(canal_id);
+
+-- Date columns (frequently filtered)
+CREATE INDEX IX_ventas_fecha ON ventas(fecha);
+```
+
+<Tip>
+  Foreign keys are automatically indexed in some databases, but SQL Server requires explicit index creation.
+</Tip>
+
+<Note>
+  **Location:** `crear_base_datos.py:152-158`
+</Note>
+
+---
+
+## Validation and Testing
+
+### How to Verify Data Integrity
+
+1. **Check Record Counts:**
+
+   ```sql
+   SELECT 'clientes' AS tabla, COUNT(*) AS registros FROM clientes
+   UNION ALL
+   SELECT 'ventas', COUNT(*) FROM ventas
+   UNION ALL
+   SELECT 'ciudades', COUNT(*) FROM ciudades;
+   ```
+
+2. **Check for Orphaned Records:**
+
+   ```sql
+   -- Clientes without valid ciudad
+   SELECT * FROM clientes c
+   LEFT JOIN ciudades ci ON c.ciudad_id = ci.ciudad_id
+   WHERE ci.ciudad_id IS NULL;
+   
+   -- Ventas without valid cliente
+   SELECT * FROM ventas v
+   LEFT JOIN clientes c ON v.cliente_id = c.cliente_id
+   WHERE c.cliente_id IS NULL;
+   ```
+
+3. **Validate Foreign Keys:**
+
+   ```sql
+   -- Should return no errors
+   DBCC CHECKCONSTRAINTS WITH ALL_CONSTRAINTS;
+   ```
+
+4. **Compare Raw vs Normalized:**
+
+   ```sql
+   SELECT COUNT(*) FROM clientes_raw;
+   SELECT COUNT(*) FROM clientes;
+   -- Counts should match (or normalized should be less if invalid records were skipped)
+   ```
+
+---
+
+## Getting Help
+
+### Debug Mode
+
+Add print statements to see processing details:
+
+```python
+for row in contenido:
+    cliente_id = row.get('cliente_id', '').strip()
+    print(f"Processing cliente_id: {cliente_id}")  # Debug
+    
+    if not cliente_id:
+        print(f"  → Skipping: Empty cliente_id")  # Debug
+        continue
+```
+
+### Common Commands
+
+```bash
+# Run normalization
+python normalizar_datos.py
+python normalizar_ventas.py
+
+# Generate SQL
+python crear_base_datos.py
+
+# Check output files
+ls -lh *.csv
+ls -lh cleanData/*.csv
+
+# View first few lines
+head -n 5 clientes_normalizados.csv
+```
+
+---
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Data Types" icon="database" href="/reference/data-types">
+    SQL Server data types reference
+  </Card>
+  <Card title="Functions" icon="code" href="/reference/functions">
+    Python functions documentation
+  </Card>
+</CardGroup>

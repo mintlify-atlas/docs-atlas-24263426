@@ -1,0 +1,297 @@
+---
+title: Customer Data Normalization
+description: Learn how customer data is processed, normalized, and transformed into structured database tables
+---
+
+## Overview
+
+The customer normalization process reads raw customer data from CSV files, cleans and validates the data, and generates normalized database tables. This module is implemented in `normalizar_datos.py`.
+
+## Input File
+
+**File:** `clientes_prueba_mas_datos.csv`
+
+**Expected Columns:**
+- `cliente_id` - Customer ID (optional, auto-generated if missing)
+- `nombre` - Customer name
+- `ciudad` - City name
+- `segmento` - Customer segment
+- `fecha_registro` - Registration date
+
+## Output Files
+
+The normalization process generates four CSV files:
+
+1. **clientes_normalizados.csv** - Normalized customer table with foreign keys
+   - Fields: `cliente_id`, `nombre`, `ciudad_id`, `segmento_id`, `fecha_registro`
+
+2. **ciudades.csv** - City dimension table
+   - Fields: `ciudad_id`, `nombre`
+
+3. **segmentos.csv** - Segment dimension table
+   - Fields: `segmento_id`, `nombre`
+
+4. **clientes_normalizados_completo.csv** - Denormalized view with human-readable values
+   - Fields: `cliente_id`, `nombre`, `ciudad`, `segmento`, `fecha_registro`
+
+## Data Cleaning Functions
+
+The module uses three core cleaning functions documented in [Data Cleaning Functions](/processing/encoding-handling#data-cleaning-functions):
+
+- `limpiar_texto()` - Cleans and normalizes text fields
+- `normalizar_fecha()` - Standardizes date formats
+- `normalizar_numero()` - Parses and validates numeric values
+
+## Processing Logic
+
+### Main Processing Function
+
+The `procesar_clientes()` function orchestrates the entire normalization workflow:
+
+```python
+def procesar_clientes():
+    """Procesa el archivo de clientes y genera archivos normalizados"""
+    
+    # Leer el archivo original
+    clientes = []
+    ciudades_set = set()
+    segmentos_set = set()
+    
+    print("Leyendo archivo de clientes...")
+    
+    try:
+        # Intentar leer con diferentes codificaciones
+        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        contenido = None
+        
+        for encoding in encodings:
+            try:
+                with open('clientes_prueba_mas_datos.csv', 'r', encoding=encoding) as f:
+                    contenido = list(csv.DictReader(f))
+                    print(f"Archivo leído correctamente con codificación: {encoding}")
+                    break
+            except UnicodeDecodeError:
+                continue
+        
+        if contenido is None:
+            raise ValueError("No se pudo leer el archivo con ninguna codificación")
+```
+
+### Customer ID Generation
+
+The system handles missing or invalid customer IDs by auto-generating sequential IDs:
+
+```python
+cliente_id_counter = 1
+
+for row in contenido:
+    cliente_id = row.get('cliente_id', '').strip()
+    
+    # Si cliente_id está vacío, usar contador
+    if not cliente_id or cliente_id == '':
+        cliente_id = str(cliente_id_counter)
+        cliente_id_counter += 1
+    else:
+        try:
+            cliente_id = int(cliente_id)
+            cliente_id_counter = max(cliente_id_counter, cliente_id + 1)
+        except ValueError:
+            cliente_id = cliente_id_counter
+            cliente_id_counter += 1
+```
+
+### Data Validation and Defaults
+
+The system applies intelligent defaults for missing values:
+
+```python
+nombre = limpiar_texto(row.get('nombre', ''))
+ciudad = limpiar_texto(row.get('ciudad', ''))
+segmento = limpiar_texto(row.get('segmento', ''))
+fecha_registro = normalizar_fecha(row.get('fecha_registro', ''))
+
+# Validar que los campos requeridos no estén vacíos
+if (nombre or ciudad) and segmento:
+    if not nombre:
+        nombre = f"Cliente {cliente_id}"
+    
+    # Si falta ciudad, usar "Sin especificar"
+    if not ciudad:
+        ciudad = "Sin especificar"
+    
+    clientes.append({
+        'cliente_id': cliente_id,
+        'nombre': nombre,
+        'ciudad': ciudad,
+        'segmento': segmento,
+        'fecha_registro': fecha_registro or ''
+    })
+```
+
+**Validation Rules:**
+- `segmento` is required - records without a segment are skipped
+- If `nombre` is missing, generates "Cliente {id}"
+- If `ciudad` is missing, uses "Sin especificar"
+- Empty `fecha_registro` is stored as empty string
+
+## Dimension Table Creation
+
+The normalization process extracts unique cities and segments into separate dimension tables:
+
+```python
+# Crear tablas
+ciudades = [{'ciudad_id': i+1, 'nombre': ciudad} 
+            for i, ciudad in enumerate(sorted(ciudades_set))]
+segmentos = [{'segmento_id': i+1, 'nombre': segmento} 
+             for i, segmento in enumerate(sorted(segmentos_set))]
+```
+
+## Mapping Logic
+
+The system creates lookup dictionaries to map dimension names to IDs:
+
+```python
+# Crear diccionarios para mapeo rápido
+ciudad_map = {ciudad['nombre']: ciudad['ciudad_id'] 
+              for ciudad in ciudades}
+segmento_map = {segmento['nombre']: segmento['segmento_id'] 
+                for segmento in segmentos}
+
+# Actualizar clientes con IDs de ciudad y segmento
+clientes_normalizados = []
+for cliente in clientes:
+    ciudad_id = ciudad_map.get(cliente['ciudad'])
+    segmento_id = segmento_map.get(cliente['segmento'])
+    
+    clientes_normalizados.append({
+        'cliente_id': cliente['cliente_id'],
+        'nombre': cliente['nombre'],
+        'ciudad_id': ciudad_id,
+        'segmento_id': segmento_id,
+        'fecha_registro': cliente['fecha_registro']
+    })
+```
+
+### ciudad_map Example
+
+```python
+{
+    "Bogotá": 1,
+    "Cali": 2,
+    "Medellín": 3,
+    "Sin especificar": 4
+}
+```
+
+### segmento_map Example
+
+```python
+{
+    "Corporativo": 1,
+    "Consumidor": 2,
+    "Gobierno": 3
+}
+```
+
+## File Output
+
+All output files are written with UTF-8 BOM encoding for Excel compatibility:
+
+```python
+with open('clientes_normalizados.csv', 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['cliente_id', 'nombre', 'ciudad_id', 'segmento_id', 'fecha_registro'])
+    writer.writeheader()
+    writer.writerows(clientes_normalizados)
+print(f"✓ Creado: clientes_normalizados.csv ({len(clientes_normalizados)} registros)")
+```
+
+## Data Transformation Examples
+
+### Example 1: Complete Record
+
+**Input:**
+```csv
+cliente_id,nombre,ciudad,segmento,fecha_registro
+1,"Empresa ABC","Bogotá","Corporativo","15/03/2023"
+```
+
+**Output (clientes_normalizados.csv):**
+```csv
+cliente_id,nombre,ciudad_id,segmento_id,fecha_registro
+1,"Empresa ABC",1,1,"2023-03-15"
+```
+
+### Example 2: Missing Customer ID
+
+**Input:**
+```csv
+cliente_id,nombre,ciudad,segmento,fecha_registro
+,"Juan Pérez","Cali","Consumidor","2023-06-20"
+```
+
+**Output:**
+```csv
+cliente_id,nombre,ciudad_id,segmento_id,fecha_registro
+1,"Juan Pérez",2,2,"2023-06-20"
+```
+
+### Example 3: Missing Name and City
+
+**Input:**
+```csv
+cliente_id,nombre,ciudad,segmento,fecha_registro
+5,,"   ","Gobierno","2023/01/10"
+```
+
+**Output:**
+```csv
+cliente_id,nombre,ciudad_id,segmento_id,fecha_registro
+5,"Cliente 5",4,3,"2023-01-10"
+```
+
+## Usage
+
+Run the normalization script from the command line:
+
+```bash
+python normalizar_datos.py
+```
+
+**Expected Output:**
+```
+Leyendo archivo de clientes...
+Archivo leído correctamente con codificación: utf-8
+
+Generando archivos normalizados...
+✓ Creado: clientes_normalizados.csv (150 registros)
+✓ Creado: ciudades.csv (12 ciudades)
+✓ Creado: segmentos.csv (3 segmentos)
+✓ Creado: clientes_normalizados_completo.csv (150 registros)
+
+¡Normalización completada!
+
+Resumen:
+  - Clientes procesados: 150
+  - Ciudades únicas: 12
+  - Segmentos únicos: 3
+```
+
+## Error Handling
+
+The script handles several error conditions:
+
+1. **File Not Found:**
+   ```python
+   except FileNotFoundError:
+       print("Error: No se encontró el archivo 'clientes_prueba_mas_datos.csv'")
+       return
+   ```
+
+2. **Encoding Errors:** Automatically tries multiple encodings
+3. **Invalid Data:** Skips records that don't meet validation requirements
+4. **Missing Values:** Applies default values where appropriate
+
+## See Also
+
+- [Sales Data Normalization](/processing/sales-normalization)
+- [Encoding Detection and Handling](/processing/encoding-handling)

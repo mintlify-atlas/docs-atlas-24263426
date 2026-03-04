@@ -1,0 +1,255 @@
+---
+title: ETL Process
+description: Understanding the Extract, Transform, Load workflow in PruebaETL
+---
+
+## Overview
+
+PruebaETL implements a complete ETL (Extract, Transform, Load) pipeline to process customer and sales data, transforming messy CSV files into a clean, normalized SQL Server database.
+
+<Info>
+  The ETL process preserves original data in RAW tables while creating optimized normalized tables for queries and analysis.
+</Info>
+
+## The Four-Stage Pipeline
+
+The ETL process consists of four sequential stages, each handling a specific aspect of data transformation:
+
+### Stage 1: Customer Normalization
+
+**Script:** `normalizar_datos.py`
+
+This stage processes the customer data CSV file with the following operations:
+
+<Steps>
+  <Step title="Extract">
+    Reads `clientes_prueba_mas_datos.csv` with multiple encoding fallback strategies (UTF-8 → Latin-1 → CP1252 → ISO-8859-1)
+  </Step>
+  
+  <Step title="Clean">
+    - Removes extra whitespace and special characters
+    - Validates required fields (nombre, ciudad, segmento)
+    - Handles empty values with defaults
+  </Step>
+  
+  <Step title="Normalize Dates">
+    Converts dates from multiple formats (DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD) to ISO format (YYYY-MM-DD)
+  </Step>
+  
+  <Step title="Extract Entities">
+    Creates separate master tables for cities and segments by extracting unique values
+  </Step>
+  
+  <Step title="Generate IDs">
+    Assigns foreign key references (ciudad_id, segmento_id) to replace redundant text
+  </Step>
+</Steps>
+
+**Code Example:**
+
+```python
+# normalizar_datos.py:13-31
+def normalizar_fecha(fecha_str):
+    """Normaliza diferentes formatos de fecha a YYYY-MM-DD"""
+    if not fecha_str or fecha_str.strip() == '':
+        return None
+    
+    fecha_str = fecha_str.strip()
+
+    formatos = [
+        '%Y-%m-%d',      
+        '%Y/%m/%d',      
+        '%d/%m/%Y',      
+        '%d-%m-%Y',      
+        '%m/%d/%Y',      
+    ]
+    
+    for formato in formatos:
+        try:
+            fecha = datetime.strptime(fecha_str, formato)
+            return fecha.strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+
+    return None
+```
+
+**Output Files:**
+- `ciudades.csv` - Unique cities with IDs
+- `segmentos.csv` - Unique customer segments with IDs
+- `clientes_normalizados.csv` - Customers with foreign key references
+- `clientes_normalizados_completo.csv` - Human-readable version with resolved names
+
+### Stage 2: Sales Normalization
+
+**Script:** `normalizar_ventas.py`
+
+Processes sales transactions with similar techniques:
+
+<Steps>
+  <Step title="Extract">
+    Reads `ventas_prueba_mas_datos.csv` with encoding detection
+  </Step>
+  
+  <Step title="Clean Numbers">
+    Removes formatting (commas, spaces) and handles special values (N/A → NULL)
+  </Step>
+  
+  <Step title="Normalize Dates">
+    Standardizes date formats to YYYY-MM-DD
+  </Step>
+  
+  <Step title="Extract Entities">
+    Creates master tables for sales channels and currencies
+  </Step>
+  
+  <Step title="Validate Relationships">
+    Ensures all sales reference valid customer IDs
+  </Step>
+</Steps>
+
+**Code Example:**
+
+```python
+# normalizar_ventas.py:37-46
+def normalizar_numero(numero_str):
+    if not numero_str or numero_str.strip() == '' or numero_str.upper() == 'N/A':
+        return None
+    
+    # Remover comas y espacios
+    numero_str = numero_str.replace(',', '').replace(' ', '').strip()
+    
+    try:
+        return float(numero_str)
+    except ValueError:
+        return None
+```
+
+**Output Files:**
+- `canales.csv` - Sales channels with IDs
+- `monedas.csv` - Currencies with IDs
+- `ventas_normalizadas.csv` - Sales with foreign key references
+- `ventas_normalizadas_completo.csv` - Human-readable version
+
+### Stage 3: SQL Schema Generation
+
+**Script:** `crear_base_datos.py`
+
+Generates a complete SQL Server DDL script:
+
+<Steps>
+  <Step title="Database Creation">
+    Creates `PruebaTecnicaDNI` database if it doesn't exist
+  </Step>
+  
+  <Step title="RAW Tables">
+    Defines tables for original, unprocessed data (for audit purposes)
+  </Step>
+  
+  <Step title="Normalized Tables">
+    Creates master tables (ciudades, segmentos, canales, monedas) and business tables (clientes, ventas)
+  </Step>
+  
+  <Step title="Constraints">
+    Adds primary keys, foreign keys, and unique constraints
+  </Step>
+  
+  <Step title="Indexes">
+    Creates indexes on foreign keys and frequently queried columns
+  </Step>
+  
+  <Step title="Data Insertion">
+    Generates INSERT statements for both RAW and normalized data
+  </Step>
+</Steps>
+
+**Output:**
+- `crear_base_datos.sql` - Complete SQL script ready for execution
+
+### Stage 4: SQL Server Execution
+
+The final stage involves running the generated SQL script:
+
+<Steps>
+  <Step title="Connect">
+    Open SQL Server Management Studio (SSMS) and connect to your server
+  </Step>
+  
+  <Step title="Load Script">
+    Open the `crear_base_datos.sql` file
+  </Step>
+  
+  <Step title="Execute">
+    Run the complete script to create the database, tables, and insert all data
+  </Step>
+  
+  <Step title="Verify">
+    Check that all tables are created and data is loaded correctly
+  </Step>
+</Steps>
+
+## Key Technical Decisions
+
+<CardGroup cols={2}>
+  <Card title="Encoding Resilience" icon="language">
+    Multiple encoding fallback strategies ensure data is read correctly regardless of source encoding
+  </Card>
+  
+  <Card title="Date Flexibility" icon="calendar">
+    Parser accepts 8+ date formats and normalizes to ISO 8601 standard
+  </Card>
+  
+  <Card title="Data Preservation" icon="database">
+    RAW tables preserve original data for audit, debugging, and reprocessing
+  </Card>
+  
+  <Card title="UTF-8 BOM Output" icon="file-export">
+    Output files use UTF-8 with BOM for Excel compatibility
+  </Card>
+</CardGroup>
+
+## Running the ETL Pipeline
+
+Execute the pipeline in order:
+
+```bash
+# Step 1: Normalize customers
+python normalizar_datos.py
+
+# Step 2: Normalize sales
+python normalizar_ventas.py
+
+# Step 3: Generate SQL script
+python crear_base_datos.py
+
+# Step 4: Execute in SQL Server (via SSMS)
+# Open crear_base_datos.sql and run it
+```
+
+<Note>
+  Each script validates that required input files exist before processing. Make sure CSV files are in the correct directory.
+</Note>
+
+## Data Quality Issues Solved
+
+The ETL pipeline addresses common data quality problems:
+
+| Problem | Solution |
+|---------|----------|
+| Incorrect character encoding ("RaÃ°LPA@rez") | Multi-encoding detection + UTF-8 output |
+| Mixed date formats | Flexible parser with 8 format attempts |
+| Numbers as text ("1,403.70") | Strip commas/spaces, convert to float |
+| Missing values (N/A, empty strings) | Convert to NULL with validation |
+| Data redundancy ("La Romana" repeated 50+ times) | Extract to master tables with IDs |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Normalization Strategy" icon="layer-group" href="/concepts/normalization">
+    Learn how entities are extracted and normalized
+  </Card>
+  
+  <Card title="Database Schema" icon="diagram-project" href="/concepts/database-schema">
+    Explore the complete database structure and relationships
+  </Card>
+</CardGroup>

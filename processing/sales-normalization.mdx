@@ -1,0 +1,419 @@
+---
+title: Sales Data Normalization
+description: Learn how sales transaction data is processed, validated, and transformed into normalized database tables
+---
+
+## Overview
+
+The sales normalization process reads raw sales transaction data from CSV files, validates and cleans the data, and generates normalized database tables with proper foreign key relationships. This module is implemented in `normalizar_ventas.py`.
+
+## Input File
+
+**File:** `ventas_prueba_mas_datos.csv`
+
+**Expected Columns:**
+- `venta_id` - Sale transaction ID (optional, auto-generated if missing)
+- `cliente_id` - Customer ID (required, must be valid integer)
+- `fecha` - Transaction date
+- `total` - Transaction amount
+- `moneda` - Currency code (e.g., USD, EUR, COP)
+- `canal` - Sales channel (e.g., Online, Tienda, Teléfono)
+
+## Output Files
+
+The normalization process generates four CSV files:
+
+1. **ventas_normalizadas.csv** - Normalized sales table with foreign keys
+   - Fields: `venta_id`, `cliente_id`, `fecha`, `total`, `moneda_id`, `canal_id`
+
+2. **canales.csv** - Sales channel dimension table
+   - Fields: `canal_id`, `nombre`
+
+3. **monedas.csv** - Currency dimension table
+   - Fields: `moneda_id`, `codigo`
+
+4. **ventas_normalizadas_completo.csv** - Denormalized view with human-readable values
+   - Fields: `venta_id`, `cliente_id`, `fecha`, `total`, `moneda`, `canal`
+
+## Data Cleaning Functions
+
+The module uses the same core cleaning functions as customer normalization:
+
+```python
+def normalizar_fecha(fecha_str):
+    if not fecha_str or fecha_str.strip() == '':
+        return None
+    
+    fecha_str = fecha_str.strip()
+    formatos = [
+        '%Y-%m-%d', '%Y/%m/%d', '%d/%m/%Y', '%d-%m-%Y',
+        '%m/%d/%Y', '%Y-%d-%m', '%d-%m-%Y', '%d/%m/%Y',
+        '%m-%d-%Y', '%Y-%m-%d'
+    ]
+    
+    for formato in formatos:
+        try:
+            fecha = datetime.strptime(fecha_str, formato)
+            return fecha.strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+    
+    return None
+
+def limpiar_texto(texto):
+    if not texto:
+        return None
+    
+    texto = texto.strip()
+    texto = re.sub(r'\s+', ' ', texto)
+    
+    if texto == '':
+        return None
+    
+    return texto
+
+def normalizar_numero(numero_str):
+    if not numero_str or numero_str.strip() == '' or numero_str.upper() == 'N/A':
+        return None
+    
+    numero_str = numero_str.replace(',', '').replace(' ', '').strip()
+    
+    try:
+        return float(numero_str)
+    except ValueError:
+        return None
+```
+
+See [Data Cleaning Functions](/processing/encoding-handling#data-cleaning-functions) for detailed documentation.
+
+## Processing Logic
+
+### Main Processing Function
+
+The `procesar_ventas()` function implements the sales normalization workflow:
+
+```python
+def procesar_ventas():
+    ventas = []
+    canales_set = set()
+    monedas_set = set()
+    
+    print("Leyendo archivo de ventas...")
+    
+    try:
+        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        contenido = None
+        
+        for encoding in encodings:
+            try:
+                with open('ventas_prueba_mas_datos.csv', 'r', encoding=encoding) as f:
+                    contenido = list(csv.DictReader(f))
+                    print(f"Archivo leído correctamente con codificación: {encoding}")
+                    break
+            except UnicodeDecodeError:
+                continue
+        
+        if contenido is None:
+            raise ValueError("No se pudo leer el archivo con ninguna codificación")
+```
+
+### Sale ID Generation
+
+Sale IDs start at 1001 and auto-increment for missing or invalid IDs:
+
+```python
+venta_id_counter = 1001
+
+for row in contenido:
+    venta_id = row.get('venta_id', '').strip()
+    
+    if not venta_id or venta_id == '':
+        venta_id = venta_id_counter
+        venta_id_counter += 1
+    else:
+        try:
+            venta_id = int(venta_id)
+            venta_id_counter = max(venta_id_counter, venta_id + 1)
+        except ValueError:
+            venta_id = venta_id_counter
+            venta_id_counter += 1
+```
+
+### Customer ID Validation
+
+Unlike customer normalization, sales records **require** a valid customer ID:
+
+```python
+cliente_id = row.get('cliente_id', '').strip()
+if not cliente_id or cliente_id == '':
+    continue  # Skip record
+
+try:
+    cliente_id = int(cliente_id)
+except ValueError:
+    continue  # Skip record
+```
+
+**Important:** Records with missing or invalid `cliente_id` are silently skipped.
+
+### Data Validation
+
+All required fields must be present and valid:
+
+```python
+fecha = normalizar_fecha(row.get('fecha', ''))
+total = normalizar_numero(row.get('total', ''))
+moneda = limpiar_texto(row.get('moneda', ''))
+canal = limpiar_texto(row.get('canal', ''))
+
+if cliente_id and total is not None and moneda and canal:
+    ventas.append({
+        'venta_id': venta_id,
+        'cliente_id': cliente_id,
+        'fecha': fecha or '',
+        'total': total,
+        'moneda': moneda,
+        'canal': canal
+    })
+    
+    if moneda:
+        monedas_set.add(moneda)
+    if canal:
+        canales_set.add(canal)
+```
+
+**Validation Rules:**
+- `cliente_id` - Required, must be valid integer
+- `total` - Required, must be valid number
+- `moneda` - Required, must be non-empty text
+- `canal` - Required, must be non-empty text
+- `fecha` - Optional, stored as empty string if invalid
+
+## Dimension Table Creation
+
+The system extracts unique channels and currencies:
+
+```python
+canales = [{'canal_id': i+1, 'nombre': canal} 
+           for i, canal in enumerate(sorted(canales_set))]
+monedas = [{'moneda_id': i+1, 'codigo': moneda} 
+           for i, moneda in enumerate(sorted(monedas_set))]
+```
+
+## Mapping Logic
+
+Lookup dictionaries map dimension values to IDs:
+
+```python
+canal_map = {canal['nombre']: canal['canal_id'] 
+             for canal in canales}
+moneda_map = {moneda['codigo']: moneda['moneda_id'] 
+              for moneda in monedas}
+
+ventas_normalizadas = []
+for venta in ventas:
+    canal_id = canal_map.get(venta['canal'])
+    moneda_id = moneda_map.get(venta['moneda'])
+    
+    ventas_normalizadas.append({
+        'venta_id': venta['venta_id'],
+        'cliente_id': venta['cliente_id'],
+        'fecha': venta['fecha'],
+        'total': venta['total'],
+        'moneda_id': moneda_id,
+        'canal_id': canal_id
+    })
+```
+
+### canal_map Example
+
+```python
+{
+    "Online": 1,
+    "Teléfono": 2,
+    "Tienda": 3
+}
+```
+
+### moneda_map Example
+
+```python
+{
+    "COP": 1,
+    "EUR": 2,
+    "USD": 3
+}
+```
+
+## File Output
+
+All files use UTF-8 BOM encoding for Excel compatibility:
+
+```python
+with open('ventas_normalizadas.csv', 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['venta_id', 'cliente_id', 'fecha', 'total', 'moneda_id', 'canal_id'])
+    writer.writeheader()
+    writer.writerows(ventas_normalizadas)
+print(f"✓ Creado: ventas_normalizadas.csv ({len(ventas_normalizadas)} registros)")
+
+with open('canales.csv', 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['canal_id', 'nombre'])
+    writer.writeheader()
+    writer.writerows(canales)
+print(f"✓ Creado: canales.csv ({len(canales)} canales)")
+
+with open('monedas.csv', 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['moneda_id', 'codigo'])
+    writer.writeheader()
+    writer.writerows(monedas)
+print(f"✓ Creado: monedas.csv ({len(monedas)} monedas)")
+```
+
+## Complete View Generation
+
+The denormalized view joins dimension tables back for readability:
+
+```python
+ventas_completas = []
+for venta in ventas_normalizadas:
+    canal_nombre = next((c['nombre'] for c in canales if c['canal_id'] == venta['canal_id']), '')
+    moneda_codigo = next((m['codigo'] for m in monedas if m['moneda_id'] == venta['moneda_id']), '')
+    
+    ventas_completas.append({
+        'venta_id': venta['venta_id'],
+        'cliente_id': venta['cliente_id'],
+        'fecha': venta['fecha'],
+        'total': venta['total'],
+        'moneda': moneda_codigo,
+        'canal': canal_nombre
+    })
+
+with open('ventas_normalizadas_completo.csv', 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['venta_id', 'cliente_id', 'fecha', 'total', 'moneda', 'canal'])
+    writer.writeheader()
+    writer.writerows(ventas_completas)
+print(f"✓ Creado: ventas_normalizadas_completo.csv ({len(ventas_completas)} registros)")
+```
+
+## Data Transformation Examples
+
+### Example 1: Valid Sale Record
+
+**Input:**
+```csv
+venta_id,cliente_id,fecha,total,moneda,canal
+1001,5,"20/06/2023","1,250.50","USD","Online"
+```
+
+**Output (ventas_normalizadas.csv):**
+```csv
+venta_id,cliente_id,fecha,total,moneda_id,canal_id
+1001,5,"2023-06-20",1250.5,3,1
+```
+
+### Example 2: Missing Sale ID
+
+**Input:**
+```csv
+venta_id,cliente_id,fecha,total,moneda,canal
+,12,"2023-05-15","500","COP","Tienda"
+```
+
+**Output:**
+```csv
+venta_id,cliente_id,fecha,total,moneda_id,canal_id
+1001,12,"2023-05-15",500.0,1,3
+```
+
+### Example 3: Skipped Records
+
+**Input:**
+```csv
+venta_id,cliente_id,fecha,total,moneda,canal
+1002,,"2023-03-10","750","EUR","Teléfono"
+1003,15,"2023-03-11",,"USD","Online"
+1004,20,"2023-03-12","300",,"Tienda"
+```
+
+**Result:** All three records are skipped:
+- Record 1002: Missing `cliente_id`
+- Record 1003: Missing `total`
+- Record 1004: Missing `moneda`
+
+### Example 4: Number Formatting
+
+**Input:**
+```csv
+venta_id,cliente_id,fecha,total,moneda,canal
+2001,8,"15-07-2023","2,500.75","USD","Online"
+2002,8,"16/07/2023","1 200.50","EUR","Tienda"
+```
+
+**Output:**
+```csv
+venta_id,cliente_id,fecha,total,moneda_id,canal_id
+2001,8,"2023-07-15",2500.75,3,1
+2002,8,"2023-07-16",1200.5,2,3
+```
+
+## Usage
+
+Run the normalization script from the command line:
+
+```bash
+python normalizar_ventas.py
+```
+
+**Expected Output:**
+```
+Leyendo archivo de ventas...
+Archivo leído correctamente con codificación: utf-8
+
+Generando archivos normalizados...
+✓ Creado: ventas_normalizadas.csv (450 registros)
+✓ Creado: canales.csv (3 canales)
+✓ Creado: monedas.csv (3 monedas)
+✓ Creado: ventas_normalizadas_completo.csv (450 registros)
+
+¡Normalización completada!
+
+Resumen:
+  - Ventas procesadas: 450
+  - Canales únicos: 3
+  - Monedas únicas: 3
+```
+
+## Error Handling
+
+The script handles several error conditions:
+
+```python
+except FileNotFoundError:
+    print("Error: No se encontró el archivo 'ventas_prueba_mas_datos.csv'")
+    return
+except Exception as e:
+    print(f"Error al leer el archivo: {e}")
+    return
+```
+
+**Error Types:**
+1. **File Not Found:** Displays error message and exits
+2. **Encoding Errors:** Automatically tries multiple encodings
+3. **Invalid Customer ID:** Record is skipped silently
+4. **Missing Required Fields:** Record is skipped silently
+5. **Invalid Numbers:** Record is skipped if total cannot be parsed
+
+## Key Differences from Customer Normalization
+
+| Aspect | Customer Normalization | Sales Normalization |
+|--------|------------------------|---------------------|
+| **ID Counter Start** | 1 | 1001 |
+| **Required Fields** | segmento only | cliente_id, total, moneda, canal |
+| **Missing Values** | Uses defaults | Skips record |
+| **Dimension Tables** | ciudades, segmentos | canales, monedas |
+| **Date Handling** | Optional | Optional |
+
+## See Also
+
+- [Customer Data Normalization](/processing/customer-normalization)
+- [Encoding Detection and Handling](/processing/encoding-handling)

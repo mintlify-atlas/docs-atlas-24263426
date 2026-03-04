@@ -1,80 +1,553 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start Guide
+description: Get started with PruebaETL in 5 minutes - from raw CSV files to normalized SQL Server database
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+PruebaETL is an ETL (Extract, Transform, Load) pipeline that normalizes customer and sales data from CSV files and loads them into a SQL Server database. This guide will walk you through the complete workflow.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+**What you'll accomplish:**
+- Normalize messy CSV files with encoding issues
+- Extract redundant data into separate reference tables
+- Generate a SQL Server database with proper relationships
+- Load data with full referential integrity
 </Note>
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- Python 3.7 or higher installed
+- SQL Server instance (local or remote)
+- SQL Server Management Studio (SSMS) or Azure Data Studio
+- Raw CSV files: `clientes_prueba_mas_datos.csv` and `ventas_prueba_mas_datos.csv`
+
+## Step-by-Step Workflow
+
+<Steps>
+  <Step title="Normalize Customer Data">
+    Run the customer normalization script to clean and structure customer data:
+
+    ```bash
+    python normalizar_datos.py
+    ```
+
+    **What it does:**
+    - Fixes character encoding issues (UTF-8, Latin-1, CP1252)
+    - Normalizes date formats to `YYYY-MM-DD`
+    - Cleans text fields (removes extra spaces, special characters)
+    - Extracts cities and segments into separate tables
+    - Generates foreign key references
+
+    **Sample Input:**
+    ```csv
+    cliente_id,nombre,ciudad,segmento,fecha_registro
+    1,Clínica Guerrero S.A.,La Romana,Individual,2024-11-23
+    2,Raúl Pérez,San Pedro de Macorís,Retail,2024-12-12
+    3,Ferretería Guerrero Corp.,San Pedro de Macorís,Individual,2024-01-17
+    ```
+
+    **Output Files:**
+    ```
+    ✓ Creado: clientes_normalizados.csv (350 registros)
+    ✓ Creado: ciudades.csv (15 ciudades)
+    ✓ Creado: segmentos.csv (3 segmentos)
+    ✓ Creado: clientes_normalizados_completo.csv (350 registros)
+    ```
+
+    <Accordion title="View normalized customer schema">
+      **clientes_normalizados.csv:**
+      ```csv
+      cliente_id,nombre,ciudad_id,segmento_id,fecha_registro
+      1,Clínica Guerrero S.A.,10,2,2024-11-23
+      2,Raúl Pérez,12,3,2024-12-12
+      ```
+
+      **ciudades.csv:**
+      ```csv
+      ciudad_id,nombre
+      1,Azua
+      2,Barahona
+      3,Higüey
+      ```
+
+      **segmentos.csv:**
+      ```csv
+      segmento_id,nombre
+      1,Corporativo
+      2,Individual
+      3,Retail
+      ```
+    </Accordion>
+  </Step>
+
+  <Step title="Normalize Sales Data">
+    Run the sales normalization script to process transaction data:
+
+    ```bash
+    python normalizar_ventas.py
+    ```
+
+    **What it does:**
+    - Normalizes numeric values (removes commas, handles N/A)
+    - Converts dates to standard format
+    - Extracts sales channels and currencies into lookup tables
+    - Validates foreign key relationships with customers
+
+    **Sample Input:**
+    ```csv
+    venta_id,cliente_id,fecha,total,moneda,canal
+    1001,66,2025-03-27,1316.31,DOP,kiosko
+    1002,24,2025-01-09,2912.88,DOP,web
+    1003,208,2025-02-17,464.1,DOP,callcenter
+    ```
+
+    **Output Files:**
+    ```
+    ✓ Creado: ventas_normalizadas.csv (500 registros)
+    ✓ Creado: canales.csv (4 canales)
+    ✓ Creado: monedas.csv (2 monedas)
+    ✓ Creado: ventas_normalizadas_completo.csv (500 registros)
+    ```
+
+    <Accordion title="View normalized sales schema">
+      **ventas_normalizadas.csv:**
+      ```csv
+      venta_id,cliente_id,fecha,total,moneda_id,canal_id
+      1001,66,2025-03-27,1316.31,1,2
+      1002,24,2025-01-09,2912.88,1,4
+      ```
+
+      **canales.csv:**
+      ```csv
+      canal_id,nombre
+      1,callcenter
+      2,kiosko
+      3,tienda
+      4,web
+      ```
+
+      **monedas.csv:**
+      ```csv
+      moneda_id,codigo
+      1,DOP
+      2,USD
+      ```
+    </Accordion>
+  </Step>
+
+  <Step title="Generate SQL Server Script">
+    Create the database schema and INSERT statements:
+
+    ```bash
+    python crear_base_datos.py
+    ```
+
+    **What it does:**
+    - Reads all normalized CSV files from `cleanData/` directory
+    - Generates DDL for database `PruebaTecnicaDNI`
+    - Creates both RAW tables (original data) and normalized tables
+    - Defines primary keys, foreign keys, and indexes
+    - Generates INSERT statements for all data
+
+    **Output:**
+    ```
+    ✓ Script SQL generado: crear_base_datos.sql
+      Tamaño: 125000 caracteres
+
+    Para ejecutar el script:
+      1. Abre SQL Server Management Studio
+      2. Conéctate a tu servidor SQL Server
+      3. Abre el archivo 'crear_base_datos.sql'
+      4. Ejecuta el script completo
+    ```
+
+    <Accordion title="View generated SQL structure">
+      The script creates the following tables:
+
+      **RAW Tables (Original Data):**
+      - `clientes_raw` - Original customer records
+      - `ventas_raw` - Original sales transactions
+
+      **Normalized Tables:**
+      - `ciudades` - City lookup table
+      - `segmentos` - Customer segment types
+      - `canales` - Sales channel types
+      - `monedas` - Currency codes
+      - `clientes` - Normalized customer master data
+      - `ventas` - Normalized sales transactions
+
+      **Relationships:**
+      ```
+      clientes → ciudades (FK: ciudad_id)
+      clientes → segmentos (FK: segmento_id)
+      ventas → clientes (FK: cliente_id)
+      ventas → monedas (FK: moneda_id)
+      ventas → canales (FK: canal_id)
+      ```
+    </Accordion>
+  </Step>
+
+  <Step title="Execute in SQL Server">
+    Load the data into your SQL Server instance:
+
+    **Using SQL Server Management Studio:**
+    1. Open SSMS and connect to your SQL Server
+    2. Open `crear_base_datos.sql` file
+    3. Execute the entire script (F5 or click Execute)
+    4. Verify the database was created successfully
+
+    **Using Azure Data Studio:**
+    1. Connect to your SQL Server instance
+    2. Open `crear_base_datos.sql`
+    3. Click **Run** or press F5
+    4. Check the Messages pane for confirmation
+
+    **Using sqlcmd (Command Line):**
+    ```bash
+    sqlcmd -S localhost -U sa -P YourPassword -i crear_base_datos.sql
+    ```
+
+    **Expected Output:**
+    ```
+    Database 'PruebaTecnicaDNI' created successfully
+    Tables created: 10
+    Raw records inserted: 850
+    Normalized records inserted: 850
+    Foreign keys established: 5
+    Indexes created: 6
+    ```
+
+    <Warning>
+    If the database already exists, the script will drop and recreate all tables. Make sure to backup any existing data before running the script.
+    </Warning>
+  </Step>
+
+  <Step title="Verify the Results">
+    Run validation queries to confirm the data loaded correctly:
+
+    ```sql
+    USE PruebaTecnicaDNI;
+    GO
+
+    -- Check record counts
+    SELECT 'Clientes' AS Tabla, COUNT(*) AS Total FROM clientes
+    UNION ALL
+    SELECT 'Ventas', COUNT(*) FROM ventas
+    UNION ALL
+    SELECT 'Ciudades', COUNT(*) FROM ciudades
+    UNION ALL
+    SELECT 'Segmentos', COUNT(*) FROM segmentos;
+    ```
+
+    **Sample Queries:**
+
+    <CodeGroup>
+    ```sql Total Sales by Customer
+    SELECT 
+        c.nombre AS Cliente,
+        COUNT(v.venta_id) AS TotalVentas,
+        SUM(v.total) AS MontoTotal,
+        m.codigo AS Moneda
+    FROM ventas v
+    JOIN clientes c ON v.cliente_id = c.cliente_id
+    JOIN monedas m ON v.moneda_id = m.moneda_id
+    GROUP BY c.nombre, m.codigo
+    ORDER BY MontoTotal DESC;
+    ```
+
+    ```sql Sales by Channel
+    SELECT 
+        ca.nombre AS Canal,
+        COUNT(*) AS NumeroVentas,
+        AVG(v.total) AS PromedioVenta
+    FROM ventas v
+    JOIN canales ca ON v.canal_id = ca.canal_id
+    GROUP BY ca.nombre
+    ORDER BY NumeroVentas DESC;
+    ```
+
+    ```sql Customers by City
+    SELECT 
+        ci.nombre AS Ciudad,
+        s.nombre AS Segmento,
+        COUNT(*) AS TotalClientes
+    FROM clientes c
+    JOIN ciudades ci ON c.ciudad_id = ci.ciudad_id
+    JOIN segmentos s ON c.segmento_id = s.segmento_id
+    GROUP BY ci.nombre, s.nombre
+    ORDER BY TotalClientes DESC;
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Understanding the Code
+
+### Date Normalization
+
+The ETL pipeline handles multiple date formats automatically:
+
+```python
+def normalizar_fecha(fecha_str):
+    """Normalizes different date formats to YYYY-MM-DD"""
+    if not fecha_str or fecha_str.strip() == '':
+        return None
+    
+    fecha_str = fecha_str.strip()
+    formatos = [
+        '%Y-%m-%d',      # 2024-11-23
+        '%Y/%m/%d',      # 2024/11/23
+        '%d/%m/%Y',      # 23/11/2024
+        '%d-%m-%Y',      # 23-11-2024
+        '%m/%d/%Y',      # 11/23/2024
+    ]
+    
+    for formato in formatos:
+        try:
+            fecha = datetime.strptime(fecha_str, formato)
+            return fecha.strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+    
+    return None
+```
+
+### Text Cleaning
+
+Removes extra spaces and handles empty values:
+
+```python
+def limpiar_texto(texto):
+    if not texto:
+        return None
+    
+    texto = texto.strip()
+    # Replace multiple spaces with single space
+    texto = re.sub(r'\s+', ' ', texto)
+    
+    if texto == '':
+        return None
+    
+    return texto
+```
+
+### Number Normalization
+
+Handles formatted numbers and special values:
+
+```python
+def normalizar_numero(numero_str):
+    if not numero_str or numero_str.strip() == '' or numero_str.upper() == 'N/A':
+        return None
+    
+    # Remove commas and spaces
+    numero_str = numero_str.replace(',', '').replace(' ', '').strip()
+    
+    try:
+        return float(numero_str)
+    except ValueError:
+        return None
+```
+
+## Troubleshooting
+
+<Accordion title="Character Encoding Issues">
+**Problem:** Characters like "Raúl Pérez" appear as "RaÃ°LPA@rez"
+
+**Solution:** The scripts automatically try multiple encodings (UTF-8, Latin-1, CP1252, ISO-8859-1):
+
+```python
+encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+for encoding in encodings:
+    try:
+        with open('clientes_prueba_mas_datos.csv', 'r', encoding=encoding) as f:
+            contenido = list(csv.DictReader(f))
+            print(f"Archivo leído correctamente con codificación: {encoding}")
+            break
+    except UnicodeDecodeError:
+        continue
+```
+
+If issues persist, check your CSV file encoding and save it as UTF-8.
+</Accordion>
+
+<Accordion title="File Not Found Error">
+**Problem:** `FileNotFoundError: clientes_prueba_mas_datos.csv`
+
+**Solution:** 
+1. Ensure your CSV files are in the same directory as the Python scripts
+2. Verify file names match exactly (case-sensitive on Linux/Mac)
+3. Check for hidden file extensions (.csv.txt)
+
+```bash
+# List files in current directory
+ls -la *.csv
+
+# Check if files exist
+python -c "import os; print(os.listdir('.'))"
+```
+</Accordion>
+
+<Accordion title="SQL Connection Failed">
+**Problem:** Cannot connect to SQL Server
+
+**Solution:**
+1. Verify SQL Server is running:
+   ```bash
+   # Windows
+   net start MSSQLSERVER
+   
+   # Linux
+   sudo systemctl status mssql-server
+   ```
+
+2. Check connection string and credentials
+3. Ensure TCP/IP is enabled in SQL Server Configuration Manager
+4. Verify firewall allows port 1433
+</Accordion>
+
+<Accordion title="Foreign Key Constraint Violations">
+**Problem:** `FK_ventas_cliente` constraint violation
+
+**Solution:** 
+This happens when sales reference customers that don't exist. The normalization scripts validate this automatically:
+
+```python
+# In normalizar_ventas.py
+cliente_id = row.get('cliente_id', '').strip()
+if not cliente_id or cliente_id == '':
+    continue  # Skip sales without valid customer_id
+```
+
+If you still see errors:
+1. Run `normalizar_datos.py` before `normalizar_ventas.py`
+2. Verify all customer IDs in sales exist in the customer file
+3. Check the console output for skipped records
+</Accordion>
+
+<Accordion title="Empty Output Files">
+**Problem:** Normalized CSV files are empty or missing records
+
+**Solution:**
+Check the console output for validation errors:
+
+```
+Leyendo archivo de clientes...
+Archivo leído correctamente con codificación: utf-8
+✓ Creado: clientes_normalizados.csv (0 registros)
+```
+
+If records = 0, the data may not pass validation. Common issues:
+- Missing required fields (nombre, segmento)
+- Invalid data types
+- Empty rows in source CSV
+
+Review your source CSV for data quality issues.
+</Accordion>
+
+<Accordion title="Script Fails During Insert">
+**Problem:** SQL script fails partway through execution
+
+**Solution:**
+The script uses `SET IDENTITY_INSERT` for reference tables. If it fails:
+
+1. Manually turn off identity insert:
+   ```sql
+   SET IDENTITY_INSERT ciudades OFF;
+   SET IDENTITY_INSERT segmentos OFF;
+   SET IDENTITY_INSERT canales OFF;
+   SET IDENTITY_INSERT monedas OFF;
+   ```
+
+2. Drop and recreate the database:
+   ```sql
+   DROP DATABASE PruebaTecnicaDNI;
+   ```
+
+3. Re-run the complete script from the beginning
+</Accordion>
+
+## Next Steps
+
+Now that your database is set up, you can:
+
+- **Query Your Data**: Use the sample queries above to analyze sales patterns
+- **Build Reports**: Connect Power BI or Tableau to visualize trends
+- **Add More Data**: Run the normalization scripts with updated CSV files
+- **Schedule ETL**: Automate the pipeline with cron jobs or Task Scheduler
+- **Extend the Schema**: Add new tables for products, orders, or inventory
+
+<Note>
+**Pro Tip:** The normalized structure reduces data redundancy by ~80% and significantly improves query performance through proper indexing and relationships.
+</Note>
+
+## Common Patterns
+
+### Incrementally Loading New Data
+
+To add new records without recreating the database:
+
+```python
+# Modify crear_base_datos.py to append instead of replace
+# Remove the DROP TABLE statements
+# Use INSERT INTO instead of CREATE TABLE
+```
+
+### Handling Updates to Master Data
+
+When cities or segments change:
+
+```sql
+-- Add a new city
+INSERT INTO ciudades (nombre) VALUES ('Nueva Ciudad');
+
+-- Update customer with new city
+UPDATE clientes 
+SET ciudad_id = (SELECT ciudad_id FROM ciudades WHERE nombre = 'Nueva Ciudad')
+WHERE cliente_id = 123;
+```
+
+### Performance Optimization
+
+The scripts create indexes automatically, but for large datasets:
+
+```sql
+-- Add additional indexes for frequently queried columns
+CREATE INDEX IX_ventas_fecha_total ON ventas(fecha, total);
+CREATE INDEX IX_clientes_segmento_ciudad ON clientes(segmento_id, ciudad_id);
+```
+
+## File Structure
+
+After running all scripts, your project structure should look like:
+
+```
+project/
+├── clientes_prueba_mas_datos.csv          # Original customer data
+├── ventas_prueba_mas_datos.csv            # Original sales data
+├── normalizar_datos.py                     # Customer normalization script
+├── normalizar_ventas.py                    # Sales normalization script
+├── crear_base_datos.py                     # SQL generation script
+├── cleanData/                              # Generated normalized files
+│   ├── ciudades.csv
+│   ├── segmentos.csv
+│   ├── clientes_normalizados.csv
+│   ├── canales.csv
+│   ├── monedas.csv
+│   └── ventas_normalizadas.csv
+└── crear_base_datos.sql                    # Generated SQL script (ready to execute)
+```
+
+## Summary
+
+You've successfully completed the PruebaETL workflow:
+
+1. Normalized messy CSV data with encoding and format issues
+2. Structured data into a relational schema (3NF)
+3. Generated a complete SQL Server database with referential integrity
+4. Loaded data with proper primary and foreign key relationships
+
+The result is a clean, optimized database ready for analytics and reporting.

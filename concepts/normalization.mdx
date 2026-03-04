@@ -1,0 +1,371 @@
+---
+title: Normalization Strategy
+description: How PruebaETL extracts and normalizes entities to eliminate data redundancy
+---
+
+## Why Normalize?
+
+Normalization is the process of organizing data to reduce redundancy and improve data integrity. In PruebaETL, raw CSV files contain repeated values like city names and customer segments hundreds of times.
+
+<Warning>
+  Without normalization, "La Romana" might appear 50+ times in the data, wasting storage space and making updates error-prone.
+</Warning>
+
+## Normalization Benefits
+
+<CardGroup cols={2}>
+  <Card title="Reduces Redundancy" icon="compress">
+    Store unique values once, reference by ID
+  </Card>
+  
+  <Card title="Ensures Consistency" icon="check-double">
+    No typos or variations of the same value
+  </Card>
+  
+  <Card title="Simplifies Updates" icon="pen-to-square">
+    Change a value in one place, affects all references
+  </Card>
+  
+  <Card title="Improves Performance" icon="gauge-high">
+    Smaller tables, faster queries, efficient indexes
+  </Card>
+</CardGroup>
+
+## Entities Extracted
+
+PruebaETL normalizes four types of entities from the raw data:
+
+### 1. Cities (Ciudades)
+
+**Extracted From:** Customer data
+
+**Purpose:** Store unique city names referenced by customer records
+
+**Implementation:**
+
+```python
+# normalizar_datos.py:63-65
+clientes = []
+ciudades_set = set()
+segmentos_set = set()
+
+# ... process customers ...
+
+# normalizar_datos.py:124-126
+if ciudad:
+    ciudades_set.add(ciudad)
+
+# normalizar_datos.py:138-139
+ciudades = [{'ciudad_id': i+1, 'nombre': ciudad} 
+            for i, ciudad in enumerate(sorted(ciudades_set))]
+```
+
+**Result:**
+
+| ciudad_id | nombre |
+|-----------|--------|
+| 1 | La Romana |
+| 2 | Santiago |
+| 3 | Santo Domingo |
+| 4 | Sin especificar |
+
+<Info>
+  The `set()` data structure automatically ensures uniqueness - duplicate city names are collapsed into a single entry.
+</Info>
+
+### 2. Segments (Segmentos)
+
+**Extracted From:** Customer data
+
+**Purpose:** Categorize customers into business segments (Corporate, Consumer, Home Office)
+
+**Implementation:**
+
+```python
+# normalizar_datos.py:127-128
+if segmento:
+    segmentos_set.add(segmento)
+
+# normalizar_datos.py:140-141
+segmentos = [{'segmento_id': i+1, 'nombre': segmento} 
+             for i, segmento in enumerate(sorted(segmentos_set))]
+```
+
+**Result:**
+
+| segmento_id | nombre |
+|-------------|--------|
+| 1 | Consumer |
+| 2 | Corporate |
+| 3 | Home Office |
+
+### 3. Sales Channels (Canales)
+
+**Extracted From:** Sales data
+
+**Purpose:** Track where sales originated (Online, Retail, Direct)
+
+**Implementation:**
+
+```python
+# normalizar_ventas.py:49-51
+ventas = []
+canales_set = set()
+monedas_set = set()
+
+# ... process sales ...
+
+# normalizar_ventas.py:113-114
+if canal:
+    canales_set.add(canal)
+
+# normalizar_ventas.py:123-124
+canales = [{'canal_id': i+1, 'nombre': canal} 
+           for i, canal in enumerate(sorted(canales_set))]
+```
+
+**Result:**
+
+| canal_id | nombre |
+|----------|--------|
+| 1 | Direct |
+| 2 | Online |
+| 3 | Retail |
+
+### 4. Currencies (Monedas)
+
+**Extracted From:** Sales data
+
+**Purpose:** Support multi-currency transactions
+
+**Implementation:**
+
+```python
+# normalizar_ventas.py:111-112
+if moneda:
+    monedas_set.add(moneda)
+
+# normalizar_ventas.py:125-126
+monedas = [{'moneda_id': i+1, 'codigo': moneda} 
+           for i, moneda in enumerate(sorted(monedas_set))]
+```
+
+**Result:**
+
+| moneda_id | codigo |
+|-----------|--------|
+| 1 | DOP |
+| 2 | EUR |
+| 3 | USD |
+
+## Reference Generation
+
+After extracting unique entities, the normalization process creates mappings to replace text with IDs:
+
+### Customer References
+
+```python
+# normalizar_datos.py:144-147
+ciudad_map = {ciudad['nombre']: ciudad['ciudad_id'] 
+              for ciudad in ciudades}
+segmento_map = {segmento['nombre']: segmento['segmento_id'] 
+                for segmento in segmentos}
+
+# normalizar_datos.py:150-161
+clientes_normalizados = []
+for cliente in clientes:
+    ciudad_id = ciudad_map.get(cliente['ciudad'])
+    segmento_id = segmento_map.get(cliente['segmento'])
+    
+    clientes_normalizados.append({
+        'cliente_id': cliente['cliente_id'],
+        'nombre': cliente['nombre'],
+        'ciudad_id': ciudad_id,  # ID instead of text
+        'segmento_id': segmento_id,  # ID instead of text
+        'fecha_registro': cliente['fecha_registro']
+    })
+```
+
+**Before Normalization:**
+
+```csv
+cliente_id,nombre,ciudad,segmento,fecha_registro
+1,Juan Pérez,Santo Domingo,Consumer,2024-01-15
+2,María García,Santo Domingo,Corporate,2024-02-20
+```
+
+**After Normalization:**
+
+```csv
+cliente_id,nombre,ciudad_id,segmento_id,fecha_registro
+1,Juan Pérez,3,1,2024-01-15
+2,María García,3,2,2024-02-20
+```
+
+<Tip>
+  Notice how "Santo Domingo" (12 characters) is replaced with "3" (1 character) - this is the storage efficiency gain from normalization.
+</Tip>
+
+### Sales References
+
+```python
+# normalizar_ventas.py:128-131
+canal_map = {canal['nombre']: canal['canal_id'] 
+             for canal in canales}
+moneda_map = {moneda['codigo']: moneda['moneda_id'] 
+              for moneda in monedas}
+
+# normalizar_ventas.py:133-145
+ventas_normalizadas = []
+for venta in ventas:
+    canal_id = canal_map.get(venta['canal'])
+    moneda_id = moneda_map.get(venta['moneda'])
+    
+    ventas_normalizadas.append({
+        'venta_id': venta['venta_id'],
+        'cliente_id': venta['cliente_id'],
+        'fecha': venta['fecha'],
+        'total': venta['total'],
+        'moneda_id': moneda_id,  # ID instead of text
+        'canal_id': canal_id  # ID instead of text
+    })
+```
+
+## Data Cleaning Integration
+
+Normalization happens **after** data cleaning:
+
+<Steps>
+  <Step title="Clean Text">
+    ```python
+    # normalizar_datos.py:33-45
+    def limpiar_texto(texto):
+        if not texto:
+            return None
+        
+        texto = texto.strip()
+        # Reemplazar múltiples espacios por uno solo
+        texto = re.sub(r'\s+', ' ', texto)
+        
+        if texto == '':
+            return None
+        
+        return texto
+    ```
+  </Step>
+  
+  <Step title="Apply to Entity">
+    ```python
+    ciudad = limpiar_texto(row.get('ciudad', ''))
+    segmento = limpiar_texto(row.get('segmento', ''))
+    ```
+  </Step>
+  
+  <Step title="Add to Set">
+    ```python
+    if ciudad:
+        ciudades_set.add(ciudad)
+    if segmento:
+        segmentos_set.add(segmento)
+    ```
+  </Step>
+</Steps>
+
+## Handling Edge Cases
+
+### Missing Cities
+
+When a customer has no city specified:
+
+```python
+# normalizar_datos.py:113-115
+if not ciudad:
+    ciudad = "Sin especificar"
+```
+
+This ensures referential integrity - every customer must have a valid city_id.
+
+### Invalid Customer References
+
+Sales records must reference valid customers:
+
+```python
+# normalizar_ventas.py:87-94
+cliente_id = row.get('cliente_id', '').strip()
+if not cliente_id or cliente_id == '':
+    continue  # Skip this sale
+
+try:
+    cliente_id = int(cliente_id)
+except ValueError:
+    continue  # Skip if not a valid integer
+```
+
+## Output Files
+
+The normalization process generates two types of output for each entity:
+
+### 1. Normalized Format (for database)
+
+**Purpose:** Optimized for database insertion with foreign keys
+
+**Example:** `clientes_normalizados.csv`
+```csv
+cliente_id,nombre,ciudad_id,segmento_id,fecha_registro
+1,Juan Pérez,3,1,2024-01-15
+```
+
+### 2. Complete Format (for human review)
+
+**Purpose:** Human-readable with resolved references
+
+**Example:** `clientes_normalizados_completo.csv`
+```csv
+cliente_id,nombre,ciudad,segmento,fecha_registro
+1,Juan Pérez,Santo Domingo,Consumer,2024-01-15
+```
+
+```python
+# normalizar_datos.py:186-203
+clientes_completos = []
+for cliente in clientes_normalizados:
+    ciudad_nombre = next((c['nombre'] for c in ciudades 
+                         if c['ciudad_id'] == cliente['ciudad_id']), '')
+    segmento_nombre = next((s['nombre'] for s in segmentos 
+                           if s['segmento_id'] == cliente['segmento_id']), '')
+    
+    clientes_completos.append({
+        'cliente_id': cliente['cliente_id'],
+        'nombre': cliente['nombre'],
+        'ciudad': ciudad_nombre,
+        'segmento': segmento_nombre,
+        'fecha_registro': cliente['fecha_registro']
+    })
+```
+
+## Storage Impact
+
+Normalization significantly reduces storage requirements:
+
+| Metric | Before | After | Reduction |
+|--------|--------|-------|----------|
+| City text repeated | 50+ times | 1 time | ~95% |
+| Segment text repeated | 100+ times | 1 time | ~98% |
+| Channel text repeated | 200+ times | 1 time | ~99% |
+| **Overall data size** | 100% | ~20% | **~80%** |
+
+<Check>
+  With normalization, the database uses approximately 80% less storage for repeated values.
+</Check>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="ETL Process" icon="arrows-spin" href="/concepts/etl-process">
+    Understand the complete Extract, Transform, Load pipeline
+  </Card>
+  
+  <Card title="Database Schema" icon="diagram-project" href="/concepts/database-schema">
+    See how normalized entities form the database structure
+  </Card>
+</CardGroup>

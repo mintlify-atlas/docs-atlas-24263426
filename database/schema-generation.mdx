@@ -1,0 +1,200 @@
+---
+title: SQL Script Generation
+description: Learn how PruebaETL generates SQL Server DDL scripts from CSV data
+---
+
+## Overview
+
+The `crear_base_datos.py` module automates the generation of complete SQL Server database scripts, including schema definitions (DDL) and data insertion statements. This approach ensures consistent database deployments and provides version control for database structures.
+
+## Core Functions
+
+### generar_sql_crear_bd()
+
+Generates the complete DDL (Data Definition Language) script for creating the database and all tables.
+
+**Returns:** SQL script string containing database and table creation statements
+
+**Generated SQL Structure:**
+
+```sql
+-- Database Creation
+IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'PruebaTecnicaDNI')
+BEGIN
+    CREATE DATABASE PruebaTecnicaDNI;
+END
+GO
+
+USE PruebaTecnicaDNI;
+GO
+```
+
+### generar_sql_insertar_datos()
+
+Generates INSERT statements for normalized tables by reading cleaned CSV files from the `cleanData/` directory.
+
+**CSV Files Read:**
+- `ciudades.csv`
+- `segmentos.csv`
+- `canales.csv`
+- `monedas.csv`
+- `clientes_normalizados.csv`
+- `ventas_normalizadas.csv`
+
+**Key Features:**
+- Escapes single quotes in string values
+- Removes line breaks and carriage returns
+- Handles NULL values appropriately
+- Uses UTF-8 encoding with BOM handling
+
+**Example Generated SQL:**
+
+```sql
+-- Insertar Ciudades
+SET IDENTITY_INSERT ciudades ON;
+INSERT INTO ciudades (ciudad_id, nombre) VALUES (1, 'Madrid');
+INSERT INTO ciudades (ciudad_id, nombre) VALUES (2, 'Barcelona');
+SET IDENTITY_INSERT ciudades OFF;
+GO
+```
+
+### generar_sql_insertar_raw()
+
+Generates INSERT statements for raw tables by reading original CSV files directly from the root directory.
+
+**CSV Files Read:**
+- `clientes_prueba_mas_datos.csv`
+- `ventas_prueba_mas_datos.csv`
+
+**Data Handling:**
+- Preserves original data formats (strings for dates and numbers)
+- Escapes special characters
+- Handles missing values as NULL
+- No data transformation applied
+
+**Example Generated SQL:**
+
+```sql
+-- Insertar datos RAW: Clientes
+INSERT INTO clientes_raw (cliente_id, nombre, ciudad, segmento, fecha_registro) 
+VALUES (1, 'Juan Pérez', 'Madrid', 'Corporativo', '2023-01-15');
+GO
+```
+
+### leer_csv(archivo)
+
+Utility function that reads CSV files from the `cleanData/` directory.
+
+**Parameters:**
+- `archivo`: Filename relative to the `cleanData/` directory
+
+**Returns:** List of dictionaries representing CSV rows
+
+**Features:**
+- UTF-8-sig encoding to handle BOM
+- Error handling for missing files
+- Uses Python's csv.DictReader for structured data access
+
+```python
+datos = []
+ruta = os.path.join('cleanData', archivo)
+
+if not os.path.exists(ruta):
+    print(f"Advertencia: No se encontró el archivo {ruta}")
+    return datos
+
+with open(ruta, 'r', encoding='utf-8-sig') as f:
+    reader = csv.DictReader(f)
+    datos = list(reader)
+```
+
+### generar_script_completo()
+
+Orchestrates the entire script generation process by combining all SQL components in the correct order.
+
+**Execution Order:**
+1. Database and table creation (DDL)
+2. Raw data insertion
+3. Normalized data insertion
+
+**Structure:**
+
+```python
+sql_crear = generar_sql_crear_bd()
+sql_insertar_raw = generar_sql_insertar_raw()
+sql_insertar = generar_sql_insertar_datos()
+
+script_completo = sql_crear + "\n\n" + \
+    "-- INSERTAR DATOS RAW (Originales)\n" + sql_insertar_raw + "\n\n" + \
+    "-- INSERTAR DATOS NORMALIZADOS\n" + sql_insertar
+```
+
+### guardar_script_sql()
+
+Saves the complete SQL script to a file and displays execution instructions.
+
+**Output File:** `crear_base_datos.sql`
+
+**Console Output:**
+```
+✓ Script SQL generado: crear_base_datos.sql
+  Tamaño: [number] caracteres
+
+Para ejecutar el script:
+  1. Abre SQL Server Management Studio
+  2. Conéctate a tu servidor SQL Server
+  3. Abre el archivo 'crear_base_datos.sql'
+  4. Ejecuta el script completo
+```
+
+## String Sanitization
+
+All string values are sanitized before insertion to prevent SQL syntax errors:
+
+**Transformations Applied:**
+- Single quotes: `'` → `''` (SQL escaping)
+- Line breaks: `\n` → ` ` (space)
+- Carriage returns: `\r` → ` ` (space)
+
+**Example:**
+
+```python
+nombre = ciudad['nombre'].replace("'", "''").replace('\n', ' ').replace('\r', ' ')
+sql_inserts.append(f"INSERT INTO ciudades (ciudad_id, nombre) VALUES ({ciudad['ciudad_id']}, '{nombre}');")
+```
+
+## Execution
+
+Run the script generator:
+
+```bash
+python crear_base_datos.py
+```
+
+This creates `crear_base_datos.sql` containing the complete database creation script ready for execution in SQL Server Management Studio.
+
+## Error Handling
+
+- **Missing CSV Files:** Warnings displayed but script continues
+- **Reading Errors:** Captured and written as SQL comments
+- **Encoding Issues:** Handled via UTF-8-sig encoding
+
+```python
+try:
+    with open(ruta_clientes_raw, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        # Process data
+except Exception as e:
+    sql_inserts.append(f"-- Error al leer clientes_raw: {e}")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Table Structure" icon="table" href="/database/table-structure">
+    Explore the complete database schema
+  </Card>
+  <Card title="SQL Server Deployment" icon="database" href="/database/sql-server-deployment">
+    Deploy the database to SQL Server
+  </Card>
+</CardGroup>

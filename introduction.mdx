@@ -1,0 +1,172 @@
+---
+title: Welcome to PruebaETL
+description: ETL tool for normalizing customer and sales data with SQL Server database generation
+mode: custom
+---
+
+<div className="relative overflow-hidden bg-gradient-to-br from-[#1e40af] via-[#2563eb] to-[#60a5fa] dark:from-[#0f1117] dark:via-[#1e40af] dark:to-[#2563eb] py-20">
+  <div className="max-w-6xl mx-auto px-6">
+    <div className="text-center">
+      <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
+        PruebaETL Documentation
+      </h1>
+      <p className="text-xl text-white/90 max-w-2xl mx-auto mb-8">
+        Transform messy CSV data into clean, normalized SQL Server databases with automatic encoding detection, data cleaning, and schema generation
+      </p>
+      <div className="flex flex-wrap justify-center gap-4">
+        <a 
+          href="/quickstart" 
+          className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-[#2563eb] font-semibold hover:bg-gray-100 transition-colors"
+        >
+          Get Started
+        </a>
+        <a 
+          href="/concepts/etl-process" 
+          className="inline-flex items-center px-6 py-3 rounded-lg border-2 border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors"
+        >
+          Learn the Process
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+    Quick start
+  </h2>
+  <p className="text-gray-600 dark:text-gray-400 mb-8">
+    Get up and running with PruebaETL in minutes
+  </p>
+
+  <Steps>
+    <Step title="Prepare your CSV files">
+      Place your customer and sales CSV files in the project directory. The tool supports multiple encodings (UTF-8, Latin-1, CP1252) and will automatically detect the correct one.
+      
+      ```bash
+      # Your files should be named:
+      clientes_prueba_mas_datos.csv
+      ventas_prueba_mas_datos.csv
+      ```
+    </Step>
+
+    <Step title="Normalize customer data">
+      Run the customer normalization script to clean and normalize your customer data, extracting cities and segments into separate tables.
+      
+      ```bash
+      python normalizar_datos.py
+      ```
+      
+      <Accordion title="Expected output">
+        The script generates four files in the current directory:
+        - `ciudades.csv` - Unique cities with IDs
+        - `segmentos.csv` - Unique customer segments with IDs
+        - `clientes_normalizados.csv` - Normalized customer data with foreign keys
+        - `clientes_normalizados_completo.csv` - Denormalized view for reference
+      </Accordion>
+    </Step>
+
+    <Step title="Normalize sales data">
+      Run the sales normalization script to process transaction data.
+      
+      ```bash
+      python normalizar_ventas.py
+      ```
+      
+      This creates normalized sales files with proper data types and reference tables for channels and currencies.
+    </Step>
+
+    <Step title="Generate and execute SQL script">
+      Create the SQL Server database schema and load your normalized data.
+      
+      ```bash
+      # Generate the SQL script
+      python crear_base_datos.py
+      
+      # This creates crear_base_datos.sql
+      # Open it in SQL Server Management Studio and execute
+      ```
+      
+      <Note>
+        The generated script creates the `PruebaTecnicaDNI` database with both raw and normalized tables, complete with foreign keys and indexes.
+      </Note>
+    </Step>
+  </Steps>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+    Key features
+  </h2>
+  <p className="text-gray-600 dark:text-gray-400 mb-8">
+    Everything you need for robust ETL processing
+  </p>
+
+  <CardGroup cols={2}>
+    <Card title="Multi-encoding support" icon="language" href="/processing/encoding-handling">
+      Automatically detects and handles UTF-8, Latin-1, CP1252, and ISO-8859-1 encodings
+    </Card>
+    <Card title="Data normalization" icon="table" href="/concepts/normalization">
+      Extracts redundant data into separate tables following relational database design principles
+    </Card>
+    <Card title="Flexible date parsing" icon="calendar" href="/reference/functions">
+      Accepts multiple date formats and normalizes to ISO standard (YYYY-MM-DD)
+    </Card>
+    <Card title="SQL Server integration" icon="database" href="/database/sql-server-deployment">
+      Generates complete SQL scripts with DDL, constraints, indexes, and data insertion
+    </Card>
+    <Card title="Data quality" icon="check-circle" href="/processing/customer-normalization">
+      Cleans text, handles missing values, validates data types, and removes duplicates
+    </Card>
+    <Card title="Audit trail" icon="clock-rotate-left" href="/database/table-structure">
+      Preserves raw data in separate tables for compliance and debugging
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+    Explore by topic
+  </h2>
+  <p className="text-gray-600 dark:text-gray-400 mb-8">
+    Dive deeper into specific aspects of the ETL pipeline
+  </p>
+
+  <CardGroup cols={3}>
+    <Card title="ETL process" icon="arrows-rotate" href="/concepts/etl-process">
+      Understand the complete data transformation workflow
+    </Card>
+    <Card title="Database schema" icon="diagram-project" href="/concepts/database-schema">
+      Learn about the normalized relational structure
+    </Card>
+    <Card title="Customer data" icon="users" href="/processing/customer-normalization">
+      How customer records are processed and cleaned
+    </Card>
+    <Card title="Sales data" icon="chart-line" href="/processing/sales-normalization">
+      Transaction data normalization and validation
+    </Card>
+    <Card title="Schema generation" icon="code" href="/database/schema-generation">
+      SQL DDL and DML generation from normalized data
+    </Card>
+    <Card title="Functions reference" icon="book" href="/reference/functions">
+      Complete API documentation for all Python functions
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27] p-8 text-center">
+    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
+      Ready to transform your data?
+    </h2>
+    <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-xl mx-auto">
+      Start normalizing your CSV files and building production-ready SQL Server databases in minutes
+    </p>
+    <a 
+      href="/quickstart" 
+      className="inline-flex items-center px-6 py-3 rounded-lg bg-[#2563eb] text-white font-semibold hover:bg-[#1e40af] transition-colors"
+    >
+      Get Started
+    </a>
+  </div>
+</div>

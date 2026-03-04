@@ -1,0 +1,330 @@
+---
+title: Encoding Detection and Handling
+description: Learn how the ETL system detects file encodings and handles various text encodings automatically
+---
+
+## Overview
+
+Both customer and sales normalization modules implement robust encoding detection to handle CSV files saved in different character encodings. This is critical for processing data from various sources, especially when dealing with Spanish language characters and special symbols.
+
+## Supported Encodings
+
+The system attempts to read files using the following encodings in order:
+
+1. **UTF-8** - Modern Unicode encoding (preferred)
+2. **Latin-1 (ISO-8859-1)** - Western European encoding
+3. **CP1252** - Windows Western European encoding
+4. **ISO-8859-1** - Alternative Western European encoding
+
+## Encoding Detection Strategy
+
+Both `normalizar_datos.py` and `normalizar_ventas.py` use the same encoding detection approach:
+
+```python
+encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+contenido = None
+
+for encoding in encodings:
+    try:
+        with open('clientes_prueba_mas_datos.csv', 'r', encoding=encoding) as f:
+            contenido = list(csv.DictReader(f))
+            print(f"Archivo leído correctamente con codificación: {encoding}")
+            break
+    except UnicodeDecodeError:
+        continue
+
+if contenido is None:
+    raise ValueError("No se pudo leer el archivo con ninguna codificación")
+```
+
+### How It Works
+
+1. **Try Each Encoding:** The system iterates through the encoding list
+2. **Catch Decode Errors:** If an encoding fails, it moves to the next one
+3. **First Success Wins:** The first successful encoding is used
+4. **Report to User:** The detected encoding is printed to console
+5. **Fail Gracefully:** If all encodings fail, a clear error message is shown
+
+## Why Multiple Encodings?
+
+### Common Scenarios
+
+- **UTF-8 Files:** Modern exports from databases and web applications
+- **Latin-1/CP1252:** Excel exports on Windows systems
+- **ISO-8859-1:** Older Unix/Linux systems
+
+### Special Characters
+
+Spanish language data often contains special characters that require proper encoding:
+
+- Accented vowels: á, é, í, ó, ú
+- Ñ/ñ character
+- Opening question/exclamation marks: ¿, ¡
+- Currency symbols: $, €
+
+**Example Problems:**
+- "Bogotá" might display as "BogotÃ¡" with wrong encoding
+- "Teléfono" might display as "TelÃ©fono"
+- "Medellín" might display as "MedellÃ­n"
+
+## Output Encoding
+
+All output files are written using **UTF-8 with BOM** encoding:
+
+```python
+with open('clientes_normalizados.csv', 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['cliente_id', 'nombre', 'ciudad_id', 'segmento_id', 'fecha_registro'])
+    writer.writeheader()
+    writer.writerows(clientes_normalizados)
+```
+
+### Why UTF-8-SIG?
+
+- **UTF-8-SIG:** Adds a Byte Order Mark (BOM) to the file
+- **Excel Compatibility:** Excel needs the BOM to correctly identify UTF-8 files
+- **Special Characters:** Ensures Spanish characters display correctly
+- **Universal Standard:** UTF-8 is the modern web and database standard
+
+## Data Cleaning Functions
+
+The ETL system includes three core data cleaning functions used by both normalization modules.
+
+### limpiar_texto()
+
+Cleans and normalizes text fields by removing extra whitespace:
+
+```python
+def limpiar_texto(texto):
+    if not texto:
+        return None
+    
+    texto = texto.strip()
+    
+    # Reemplazar múltiples espacios por uno solo
+    texto = re.sub(r'\s+', ' ', texto)
+    
+    if texto == '':
+        return None
+    
+    return texto
+```
+
+**Functionality:**
+- Returns `None` for empty or null input
+- Strips leading/trailing whitespace
+- Replaces multiple spaces with single space
+- Returns `None` if result is empty string
+
+**Examples:**
+
+| Input | Output |
+|-------|--------|
+| `"  Empresa ABC  "` | `"Empresa ABC"` |
+| `"Juan    Pérez"` | `"Juan Pérez"` |
+| `"   "` | `None` |
+| `""` | `None` |
+| `None` | `None` |
+
+### normalizar_fecha()
+
+Converts various date formats to ISO 8601 format (YYYY-MM-DD):
+
+```python
+def normalizar_fecha(fecha_str):
+    """Normaliza diferentes formatos de fecha a YYYY-MM-DD"""
+    if not fecha_str or fecha_str.strip() == '':
+        return None
+    
+    fecha_str = fecha_str.strip()
+
+    formatos = [
+        '%Y-%m-%d',      
+        '%Y/%m/%d',      
+        '%d/%m/%Y',      
+        '%d-%m-%Y',      
+        '%m/%d/%Y',      
+        '%Y-%d-%m',      
+        '%d-%m-%Y',      
+        '%d/%m/%Y',      
+    ]
+    
+    for formato in formatos:
+        try:
+            fecha = datetime.strptime(fecha_str, formato)
+            return fecha.strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+
+    return None
+```
+
+**Supported Date Formats:**
+
+| Format | Example | Region |
+|--------|---------|--------|
+| `%Y-%m-%d` | 2023-03-15 | ISO 8601 (standard) |
+| `%Y/%m/%d` | 2023/03/15 | ISO variant |
+| `%d/%m/%Y` | 15/03/2023 | European/Latin American |
+| `%d-%m-%Y` | 15-03-2023 | European variant |
+| `%m/%d/%Y` | 03/15/2023 | US format |
+| `%m-%d-%Y` | 03-15-2023 | US variant |
+
+**Examples:**
+
+| Input | Output |
+|-------|--------|
+| `"15/03/2023"` | `"2023-03-15"` |
+| `"2023-03-15"` | `"2023-03-15"` |
+| `"03/15/2023"` | `"2023-03-15"` |
+| `"  20/06/2023  "` | `"2023-06-20"` |
+| `"invalid"` | `None` |
+| `""` | `None` |
+
+**Important Notes:**
+- First matching format is used
+- Ambiguous dates (e.g., 01/02/2023) are tried in order
+- Invalid dates return `None` rather than raising errors
+
+### normalizar_numero()
+
+Parses and validates numeric values, handling common formatting:
+
+```python
+def normalizar_numero(numero_str):
+    if not numero_str or numero_str.strip() == '' or numero_str.upper() == 'N/A':
+        return None
+    
+    # Remover comas y espacios
+    numero_str = numero_str.replace(',', '').replace(' ', '').strip()
+    
+    try:
+        return float(numero_str)
+    except ValueError:
+        return None
+```
+
+**Functionality:**
+- Returns `None` for empty, null, or "N/A" values
+- Removes thousands separators (commas)
+- Removes spaces (common in European formatting)
+- Converts to float
+- Returns `None` for invalid numbers
+
+**Examples:**
+
+| Input | Output |
+|-------|--------|
+| `"1250.50"` | `1250.5` |
+| `"1,250.50"` | `1250.5` |
+| `"1 250.50"` | `1250.5` |
+| `"  500  "` | `500.0` |
+| `"N/A"` | `None` |
+| `"n/a"` | `None` |
+| `"abc"` | `None` |
+| `""` | `None` |
+
+**Limitations:**
+- Does not handle European decimal separator (comma)
+- `"1.250,50"` would fail - needs to be converted to `"1250.50"` first
+- No currency symbol handling - `"$1,250.50"` would fail
+
+## Encoding Detection Examples
+
+### Example 1: UTF-8 File
+
+```
+Leyendo archivo de clientes...
+Archivo leído correctamente con codificación: utf-8
+```
+
+The file is modern UTF-8, detected on first try.
+
+### Example 2: Windows Excel Export
+
+```
+Leyendo archivo de clientes...
+Archivo leído correctamente con codificación: cp1252
+```
+
+The file was exported from Excel on Windows, detected on third try.
+
+### Example 3: All Encodings Fail
+
+```
+Leyendo archivo de clientes...
+Error al leer el archivo: No se pudo leer el archivo con ninguna codificación
+```
+
+The file might be corrupted or use an unsupported encoding like UTF-16.
+
+## Best Practices
+
+### For Input Files
+
+1. **Prefer UTF-8:** Save source files as UTF-8 when possible
+2. **Test Encodings:** If issues occur, try resaving the file with different encoding
+3. **Check Console:** Always check which encoding was detected
+4. **Validate Characters:** Verify special characters display correctly after processing
+
+### For Output Files
+
+1. **UTF-8-SIG Standard:** All output uses UTF-8 with BOM
+2. **Excel Compatible:** Files open correctly in Excel with proper character display
+3. **Database Ready:** UTF-8 is compatible with modern databases
+4. **Future Proof:** UTF-8 is the recommended standard for all new systems
+
+## Troubleshooting Encoding Issues
+
+### Symptom: Garbled Characters
+
+**Problem:** `"Bogotá"` displays as `"BogotÃ¡"`
+
+**Solution:**
+- Input file is UTF-8 but was opened as Latin-1
+- System should auto-detect, but verify console output
+- If persists, manually convert file to UTF-8
+
+### Symptom: All Encodings Fail
+
+**Problem:** `"No se pudo leer el archivo con ninguna codificación"`
+
+**Solutions:**
+1. Check if file is actually CSV format
+2. File might be UTF-16 (not supported) - resave as UTF-8
+3. File might be corrupted - verify it opens in text editor
+4. Try opening in Excel and exporting as new CSV
+
+### Symptom: Some Characters Missing
+
+**Problem:** Accented characters are replaced with `?`
+
+**Solution:**
+- Output was opened with wrong encoding
+- Make sure viewing application uses UTF-8
+- Excel should auto-detect UTF-8-SIG
+- For other tools, explicitly select UTF-8
+
+## Technical Details
+
+### Encoding Detection Algorithms
+
+The simple sequential try-catch approach is effective because:
+
+1. **Fast Failure:** `UnicodeDecodeError` is raised immediately
+2. **No Ambiguity:** Each encoding either works or fails completely
+3. **Deterministic:** Same file always produces same result
+4. **Efficient:** Most files are UTF-8 and succeed on first try
+
+### Alternative Approaches
+
+More sophisticated encoding detection libraries exist (e.g., `chardet`), but the simple approach is preferred because:
+
+- **No Dependencies:** No external libraries required
+- **Known Encodings:** We expect specific encodings for Latin American data
+- **Performance:** Fast and deterministic
+- **Maintainability:** Easy to understand and modify
+
+## See Also
+
+- [Customer Data Normalization](/processing/customer-normalization)
+- [Sales Data Normalization](/processing/sales-normalization)

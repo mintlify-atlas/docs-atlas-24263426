@@ -1,0 +1,597 @@
+---
+title: "Functions Reference"
+description: "Complete reference of all Python functions in PruebaETL with parameters and examples"
+---
+
+## Overview
+
+PruebaETL includes utility functions for data normalization, validation, and database generation. All functions are designed to handle messy real-world data with graceful error handling.
+
+---
+
+## Data Normalization Functions
+
+### normalizar_fecha()
+
+**Description:** Normalizes date strings from multiple formats to ISO format (YYYY-MM-DD).
+
+**Location:** `normalizar_datos.py:6`, `normalizar_ventas.py:5`
+
+**Signature:**
+```python
+def normalizar_fecha(fecha_str: str) -> str | None
+```
+
+<ParamField path="fecha_str" type="string" required>
+  Date string in any supported format
+</ParamField>
+
+**Returns:** Normalized date string in `YYYY-MM-DD` format, or `None` if invalid/empty.
+
+**Supported Date Formats:**
+- `YYYY-MM-DD` (ISO format)
+- `YYYY/MM/DD`
+- `DD/MM/YYYY`
+- `DD-MM-YYYY`
+- `MM/DD/YYYY`
+- `M-D-Y` variations
+
+**Examples:**
+
+```python
+# Valid dates
+normalizar_fecha("2024-11-23")      # Returns: "2024-11-23"
+normalizar_fecha("23/11/2024")      # Returns: "2024-11-23"
+normalizar_fecha("11-23-2024")      # Returns: "2024-11-23"
+
+# Invalid/empty dates
+normalizar_fecha("")                # Returns: None
+normalizar_fecha("invalid")         # Returns: None
+normalizar_fecha("  ")              # Returns: None
+```
+
+**Implementation Details:**
+- Tries multiple format parsers sequentially
+- Strips whitespace before parsing
+- Returns `None` for empty strings or unparseable dates
+- Uses Python's `datetime.strptime()` for validation
+
+<Note>
+  The function attempts formats in order. If a date is ambiguous (e.g., "01/02/2024"), it may be interpreted as Jan 2 or Feb 1 depending on format order.
+</Note>
+
+---
+
+### limpiar_texto()
+
+**Description:** Cleans and normalizes text by removing extra whitespace and handling empty values.
+
+**Location:** `normalizar_datos.py:33`, `normalizar_ventas.py:25`
+
+**Signature:**
+```python
+def limpiar_texto(texto: str) -> str | None
+```
+
+<ParamField path="texto" type="string" required>
+  Text string to clean
+</ParamField>
+
+**Returns:** Cleaned text string, or `None` if empty/invalid.
+
+**Processing Steps:**
+1. Strips leading/trailing whitespace
+2. Replaces multiple spaces with single space
+3. Returns `None` if result is empty string
+
+**Examples:**
+
+```python
+# Valid text
+limpiar_texto("  Raúl   Pérez  ")    # Returns: "Raúl Pérez"
+limpiar_texto("Normal Text")        # Returns: "Normal Text"
+limpiar_texto("Multiple   Spaces")  # Returns: "Multiple Spaces"
+
+# Empty/invalid text
+limpiar_texto("")                   # Returns: None
+limpiar_texto("   ")                # Returns: None
+limpiar_texto(None)                 # Returns: None
+```
+
+**Use Cases:**
+- Cliente names
+- City names
+- Segment names
+- Channel names
+- Any text field from CSV
+
+<Tip>
+  This function preserves special characters (á, é, ñ) while normalizing whitespace.
+</Tip>
+
+---
+
+### normalizar_numero()
+
+**Description:** Converts number strings to float, handling formatting and special values.
+
+**Location:** `normalizar_datos.py:47`, `normalizar_ventas.py:37`
+
+**Signature:**
+```python
+def normalizar_numero(numero_str: str) -> float | None
+```
+
+<ParamField path="numero_str" type="string" required>
+  Number string with possible formatting (commas, spaces)
+</ParamField>
+
+**Returns:** Float value, or `None` if invalid/empty/N/A.
+
+**Processing Steps:**
+1. Checks for empty string or "N/A"
+2. Removes commas and spaces
+3. Converts to float
+4. Returns `None` if conversion fails
+
+**Examples:**
+
+```python
+# Valid numbers
+normalizar_numero("1403.70")        # Returns: 1403.7
+normalizar_numero("1,403.70")       # Returns: 1403.7
+normalizar_numero("1 403.70")       # Returns: 1403.7
+normalizar_numero("100")            # Returns: 100.0
+
+# Invalid/special values
+normalizar_numero("N/A")            # Returns: None
+normalizar_numero("n/a")            # Returns: None
+normalizar_numero("")               # Returns: None
+normalizar_numero("abc")            # Returns: None
+```
+
+**Use Cases:**
+- Sale totals
+- Monetary amounts
+- Quantity fields
+- Any numeric field from CSV
+
+<Warning>
+  This function does not validate currency symbols. Remove currency symbols before calling.
+</Warning>
+
+---
+
+## Data Processing Functions
+
+### procesar_clientes()
+
+**Description:** Main function to process cliente CSV and generate normalized output files.
+
+**Location:** `normalizar_datos.py:59`
+
+**Signature:**
+```python
+def procesar_clientes() -> None
+```
+
+**Parameters:** None (reads from `clientes_prueba_mas_datos.csv` in current directory)
+
+**Returns:** None (generates CSV files as side effect)
+
+**Generated Files:**
+- `clientes_normalizados.csv` - Normalized clientes with foreign keys
+- `ciudades.csv` - Unique cities with IDs
+- `segmentos.csv` - Unique segments with IDs
+- `clientes_normalizados_completo.csv` - Denormalized view for verification
+
+**Processing Logic:**
+
+1. **Read CSV** with multiple encoding fallbacks:
+   - UTF-8
+   - Latin-1
+   - CP1252
+   - ISO-8859-1
+
+2. **Extract and normalize data:**
+   - Clean all text fields
+   - Normalize dates
+   - Handle missing cliente_id (auto-generate)
+   - Validate required fields
+
+3. **Build master tables:**
+   - Extract unique cities
+   - Extract unique segments
+   - Assign auto-increment IDs
+
+4. **Create normalized records:**
+   - Replace city names with city_id
+   - Replace segment names with segmento_id
+
+5. **Write output files** with UTF-8 BOM encoding
+
+**Example Usage:**
+
+```python
+if __name__ == '__main__':
+    procesar_clientes()
+```
+
+**Console Output:**
+```
+Leyendo archivo de clientes...
+Archivo leído correctamente con codificación: utf-8
+
+Generando archivos normalizados...
+✓ Creado: clientes_normalizados.csv (150 registros)
+✓ Creado: ciudades.csv (8 ciudades)
+✓ Creado: segmentos.csv (3 segmentos)
+✓ Creado: clientes_normalizados_completo.csv (150 registros)
+
+¡Normalización completada!
+
+Resumen:
+  - Clientes procesados: 150
+  - Ciudades únicas: 8
+  - Segmentos únicos: 3
+```
+
+<Note>
+  If a cliente has no name but has a city and segment, it generates a default name: "Cliente {cliente_id}"
+</Note>
+
+---
+
+### procesar_ventas()
+
+**Description:** Main function to process sales CSV and generate normalized output files.
+
+**Location:** `normalizar_ventas.py:48`
+
+**Signature:**
+```python
+def procesar_ventas() -> None
+```
+
+**Parameters:** None (reads from `ventas_prueba_mas_datos.csv` in current directory)
+
+**Returns:** None (generates CSV files as side effect)
+
+**Generated Files:**
+- `ventas_normalizadas.csv` - Normalized sales with foreign keys
+- `canales.csv` - Unique channels with IDs
+- `monedas.csv` - Unique currencies with IDs
+- `ventas_normalizadas_completo.csv` - Denormalized view for verification
+
+**Processing Logic:**
+
+1. **Read CSV** with multiple encoding fallbacks
+
+2. **Extract and normalize data:**
+   - Clean text fields (channel, currency)
+   - Normalize dates
+   - Normalize numeric totals
+   - Handle missing venta_id (starts at 1001)
+   - Validate required fields
+
+3. **Build master tables:**
+   - Extract unique channels
+   - Extract unique currencies
+   - Assign auto-increment IDs
+
+4. **Create normalized records:**
+   - Replace channel names with canal_id
+   - Replace currency codes with moneda_id
+
+5. **Write output files** with UTF-8 BOM encoding
+
+**Example Usage:**
+
+```python
+if __name__ == '__main__':
+    procesar_ventas()
+```
+
+**Console Output:**
+```
+Leyendo archivo de ventas...
+Archivo leído correctamente con codificación: utf-8
+
+Generando archivos normalizados...
+✓ Creado: ventas_normalizadas.csv (500 registros)
+✓ Creado: canales.csv (4 canales)
+✓ Creado: monedas.csv (2 monedas)
+✓ Creado: ventas_normalizadas_completo.csv (500 registros)
+
+¡Normalización completada!
+
+Resumen:
+  - Ventas procesadas: 500
+  - Canales únicos: 4
+  - Monedas únicas: 2
+```
+
+<Warning>
+  Sales records without a valid cliente_id or total are skipped entirely.
+</Warning>
+
+---
+
+## SQL Generation Functions
+
+### generar_sql_crear_bd()
+
+**Description:** Generates DDL SQL for creating database and all tables.
+
+**Location:** `crear_base_datos.py:8`
+
+**Signature:**
+```python
+def generar_sql_crear_bd() -> str
+```
+
+**Parameters:** None
+
+**Returns:** String containing complete SQL script for database and table creation.
+
+**Generated SQL Includes:**
+- Database creation (`PruebaTecnicaDNI`)
+- Raw tables (clientes_raw, ventas_raw)
+- Master tables (ciudades, segmentos, canales, monedas)
+- Business tables (clientes, ventas)
+- Primary key constraints
+- Foreign key constraints
+- Indexes on foreign keys and date fields
+
+**Example Usage:**
+
+```python
+sql_script = generar_sql_crear_bd()
+print(sql_script)
+```
+
+---
+
+### leer_csv()
+
+**Description:** Reads a CSV file from the cleanData directory.
+
+**Location:** `crear_base_datos.py:165`
+
+**Signature:**
+```python
+def leer_csv(archivo: str) -> list[dict]
+```
+
+<ParamField path="archivo" type="string" required>
+  CSV filename (will be looked up in `cleanData/` directory)
+</ParamField>
+
+**Returns:** List of dictionaries, one per CSV row.
+
+**Example Usage:**
+
+```python
+ciudades = leer_csv('ciudades.csv')
+# Returns: [{'ciudad_id': '1', 'nombre': 'La Romana'}, ...]
+
+clientes = leer_csv('clientes_normalizados.csv')
+# Returns: [{'cliente_id': '1', 'nombre': 'Juan Pérez', ...}, ...]
+```
+
+<Note>
+  Returns empty list if file doesn't exist. Prints warning but doesn't raise exception.
+</Note>
+
+---
+
+### generar_sql_insertar_datos()
+
+**Description:** Generates INSERT statements for normalized data.
+
+**Location:** `crear_base_datos.py:180`
+
+**Signature:**
+```python
+def generar_sql_insertar_datos() -> str
+```
+
+**Parameters:** None (reads from `cleanData/*.csv` files)
+
+**Returns:** String containing SQL INSERT statements.
+
+**Processing:**
+1. Reads all normalized CSV files
+2. Generates INSERT statements in dependency order:
+   - Ciudades (referenced by clientes)
+   - Segmentos (referenced by clientes)
+   - Canales (referenced by ventas)
+   - Monedas (referenced by ventas)
+   - Clientes (references ciudades, segmentos)
+   - Ventas (references clientes, monedas, canales)
+3. Handles IDENTITY columns with SET IDENTITY_INSERT
+4. Escapes single quotes in text fields
+5. Converts empty strings to NULL
+
+**Example Output:**
+
+```sql
+-- Insertar Ciudades
+SET IDENTITY_INSERT ciudades ON;
+INSERT INTO ciudades (ciudad_id, nombre) VALUES (1, 'La Romana');
+INSERT INTO ciudades (ciudad_id, nombre) VALUES (2, 'Santo Domingo');
+SET IDENTITY_INSERT ciudades OFF;
+GO
+
+-- Insertar Clientes
+INSERT INTO clientes (cliente_id, nombre, ciudad_id, segmento_id, fecha_registro) 
+  VALUES (1, 'Raúl Pérez', 1, 2, '2024-11-23');
+GO
+```
+
+---
+
+### generar_sql_insertar_raw()
+
+**Description:** Generates INSERT statements for raw data from original CSV files.
+
+**Location:** `crear_base_datos.py:255`
+
+**Signature:**
+```python
+def generar_sql_insertar_raw() -> str
+```
+
+**Parameters:** None (reads from original CSV files in current directory)
+
+**Returns:** String containing SQL INSERT statements for raw tables.
+
+**Reads From:**
+- `clientes_prueba_mas_datos.csv` → `clientes_raw` table
+- `ventas_prueba_mas_datos.csv` → `ventas_raw` table
+
+**Purpose:** Preserves original data for auditing and debugging.
+
+---
+
+### generar_script_completo()
+
+**Description:** Combines all SQL generation functions into one complete script.
+
+**Location:** `crear_base_datos.py:319`
+
+**Signature:**
+```python
+def generar_script_completo() -> str
+```
+
+**Parameters:** None
+
+**Returns:** Complete SQL script with:
+1. Database and table creation
+2. Raw data inserts
+3. Normalized data inserts
+
+**Example Usage:**
+
+```python
+script = generar_script_completo()
+with open('crear_base_datos.sql', 'w', encoding='utf-8') as f:
+    f.write(script)
+```
+
+---
+
+### guardar_script_sql()
+
+**Description:** Generates and saves complete SQL script to file.
+
+**Location:** `crear_base_datos.py:329`
+
+**Signature:**
+```python
+def guardar_script_sql() -> None
+```
+
+**Parameters:** None
+
+**Returns:** None (creates `crear_base_datos.sql` file)
+
+**Example Usage:**
+
+```python
+if __name__ == '__main__':
+    print("Generando script SQL para crear la base de datos...")
+    guardar_script_sql()
+    print("¡Proceso completado!")
+```
+
+**Console Output:**
+```
+Generando script SQL para crear la base de datos...
+✓ Script SQL generado: crear_base_datos.sql
+  Tamaño: 125000 caracteres
+
+Para ejecutar el script:
+  1. Abre SQL Server Management Studio
+  2. Conéctate a tu servidor SQL Server
+  3. Abre el archivo 'crear_base_datos.sql'
+  4. Ejecuta el script completo
+
+¡Proceso completado!
+```
+
+---
+
+## Error Handling
+
+### Encoding Fallback
+
+All CSV reading functions try multiple encodings:
+
+```python
+encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+for encoding in encodings:
+    try:
+        with open(filename, 'r', encoding=encoding) as f:
+            content = list(csv.DictReader(f))
+            break
+    except UnicodeDecodeError:
+        continue
+```
+
+### Missing Fields
+
+Functions gracefully handle missing CSV fields:
+
+```python
+cliente_id = row.get('cliente_id', '').strip()
+if not cliente_id:
+    cliente_id = auto_increment_counter
+```
+
+### Validation
+
+Required fields are validated before processing:
+
+```python
+if cliente_id and total is not None and moneda and canal:
+    # Process record
+else:
+    # Skip invalid record
+    continue
+```
+
+---
+
+## Complete Workflow Example
+
+```python
+# Step 1: Normalize clientes
+import normalizar_datos
+normalizar_datos.procesar_clientes()
+
+# Step 2: Normalize ventas
+import normalizar_ventas
+normalizar_ventas.procesar_ventas()
+
+# Step 3: Generate SQL script
+import crear_base_datos
+crear_base_datos.guardar_script_sql()
+
+# Step 4: Execute in SQL Server
+# (Manual step using SSMS)
+```
+
+---
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Data Types" icon="database" href="/reference/data-types">
+    SQL Server data types reference
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/reference/troubleshooting">
+    Common problems and solutions
+  </Card>
+</CardGroup>

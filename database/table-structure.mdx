@@ -1,0 +1,359 @@
+---
+title: Table Structure
+description: Complete database schema with raw and normalized tables, constraints, and indexes
+---
+
+## Database Architecture
+
+The PruebaETL system uses a two-tier architecture:
+
+1. **Raw Tables**: Store original data exactly as received from CSV files
+2. **Normalized Tables**: Store cleaned, validated, and relationally structured data
+
+This approach enables data lineage tracking and reprocessing capabilities.
+
+## Raw Tables
+
+Raw tables preserve original data without transformation. All columns use flexible data types (NVARCHAR) to accommodate any input format.
+
+### clientes_raw
+
+Stores original customer data before normalization.
+
+```sql
+CREATE TABLE clientes_raw (
+    cliente_id INT,
+    nombre NVARCHAR(255),
+    ciudad NVARCHAR(100),
+    segmento NVARCHAR(50),
+    fecha_registro NVARCHAR(50),
+    fecha_carga DATETIME DEFAULT GETDATE()
+);
+```
+
+**Column Details:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `cliente_id` | INT | Original customer identifier |
+| `nombre` | NVARCHAR(255) | Customer name as provided |
+| `ciudad` | NVARCHAR(100) | City name (not normalized) |
+| `segmento` | NVARCHAR(50) | Business segment (not normalized) |
+| `fecha_registro` | NVARCHAR(50) | Registration date as string |
+| `fecha_carga` | DATETIME | Timestamp of data load |
+
+**Key Characteristics:**
+- No PRIMARY KEY (data may contain duplicates or errors)
+- No FOREIGN KEY constraints
+- `fecha_carga` automatically set to current timestamp
+- All business data stored as strings for maximum flexibility
+
+### ventas_raw
+
+Stores original sales transactions before normalization.
+
+```sql
+CREATE TABLE ventas_raw (
+    venta_id INT,
+    cliente_id INT,
+    fecha NVARCHAR(50),
+    total NVARCHAR(50),
+    moneda NVARCHAR(10),
+    canal NVARCHAR(50),
+    fecha_carga DATETIME DEFAULT GETDATE()
+);
+```
+
+**Column Details:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `venta_id` | INT | Original sale identifier |
+| `cliente_id` | INT | Customer reference |
+| `fecha` | NVARCHAR(50) | Sale date as string |
+| `total` | NVARCHAR(50) | Sale amount as string (may include formatting) |
+| `moneda` | NVARCHAR(10) | Currency code |
+| `canal` | NVARCHAR(50) | Sales channel name |
+| `fecha_carga` | DATETIME | Timestamp of data load |
+
+**Key Characteristics:**
+- No constraints or validations
+- Numeric values stored as strings
+- Dates stored as strings in original format
+
+## Normalized Tables
+
+Normalized tables implement proper data types, constraints, and relationships following database normalization principles.
+
+### Dimension Tables
+
+#### ciudades
+
+Stores unique cities referenced by customers.
+
+```sql
+CREATE TABLE ciudades (
+    ciudad_id INT PRIMARY KEY IDENTITY(1,1),
+    nombre NVARCHAR(100) NOT NULL UNIQUE,
+    fecha_creacion DATETIME DEFAULT GETDATE()
+);
+```
+
+**Constraints:**
+- `PRIMARY KEY` on `ciudad_id`
+- `IDENTITY(1,1)` for auto-incrementing IDs
+- `UNIQUE` constraint on `nombre` (city names must be unique)
+- `NOT NULL` on `nombre`
+
+#### segmentos
+
+Stores customer business segments.
+
+```sql
+CREATE TABLE segmentos (
+    segmento_id INT PRIMARY KEY IDENTITY(1,1),
+    nombre NVARCHAR(50) NOT NULL UNIQUE,
+    fecha_creacion DATETIME DEFAULT GETDATE()
+);
+```
+
+**Constraints:**
+- `PRIMARY KEY` on `segmento_id`
+- `IDENTITY(1,1)` for auto-incrementing IDs
+- `UNIQUE` constraint on `nombre`
+- `NOT NULL` on `nombre`
+
+#### canales
+
+Stores sales channel definitions.
+
+```sql
+CREATE TABLE canales (
+    canal_id INT PRIMARY KEY IDENTITY(1,1),
+    nombre NVARCHAR(50) NOT NULL UNIQUE,
+    fecha_creacion DATETIME DEFAULT GETDATE()
+);
+```
+
+**Constraints:**
+- `PRIMARY KEY` on `canal_id`
+- `IDENTITY(1,1)` for auto-incrementing IDs
+- `UNIQUE` constraint on `nombre`
+- `NOT NULL` on `nombre`
+
+#### monedas
+
+Stores currency codes.
+
+```sql
+CREATE TABLE monedas (
+    moneda_id INT PRIMARY KEY IDENTITY(1,1),
+    codigo NVARCHAR(10) NOT NULL UNIQUE,
+    fecha_creacion DATETIME DEFAULT GETDATE()
+);
+```
+
+**Constraints:**
+- `PRIMARY KEY` on `moneda_id`
+- `IDENTITY(1,1)` for auto-incrementing IDs
+- `UNIQUE` constraint on `codigo`
+- `NOT NULL` on `codigo`
+
+### Fact Tables
+
+#### clientes
+
+Normalized customer table with foreign key relationships.
+
+```sql
+CREATE TABLE clientes (
+    cliente_id INT PRIMARY KEY,
+    nombre NVARCHAR(255) NOT NULL,
+    ciudad_id INT NOT NULL,
+    segmento_id INT NOT NULL,
+    fecha_registro DATE,
+    fecha_creacion DATETIME DEFAULT GETDATE(),
+    fecha_actualizacion DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_clientes_ciudad FOREIGN KEY (ciudad_id) 
+        REFERENCES ciudades(ciudad_id),
+    CONSTRAINT FK_clientes_segmento FOREIGN KEY (segmento_id) 
+        REFERENCES segmentos(segmento_id)
+);
+```
+
+**Column Details:**
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `cliente_id` | INT | PRIMARY KEY | Unique customer identifier |
+| `nombre` | NVARCHAR(255) | NOT NULL | Customer name |
+| `ciudad_id` | INT | NOT NULL, FK | Reference to ciudades |
+| `segmento_id` | INT | NOT NULL, FK | Reference to segmentos |
+| `fecha_registro` | DATE | - | Registration date (proper date type) |
+| `fecha_creacion` | DATETIME | DEFAULT | Record creation timestamp |
+| `fecha_actualizacion` | DATETIME | DEFAULT | Record update timestamp |
+
+**Foreign Key Constraints:**
+
+```sql
+CONSTRAINT FK_clientes_ciudad FOREIGN KEY (ciudad_id) 
+    REFERENCES ciudades(ciudad_id)
+
+CONSTRAINT FK_clientes_segmento FOREIGN KEY (segmento_id) 
+    REFERENCES segmentos(segmento_id)
+```
+
+**Key Characteristics:**
+- Uses business key as PRIMARY KEY (not auto-generated)
+- Enforces referential integrity via FOREIGN KEYs
+- Proper DATE type for `fecha_registro`
+- Audit fields for tracking record lifecycle
+
+#### ventas
+
+Normalized sales transactions table.
+
+```sql
+CREATE TABLE ventas (
+    venta_id INT PRIMARY KEY,
+    cliente_id INT NOT NULL,
+    fecha DATE,
+    total DECIMAL(18,2) NOT NULL,
+    moneda_id INT NOT NULL,
+    canal_id INT NOT NULL,
+    fecha_creacion DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_ventas_cliente FOREIGN KEY (cliente_id) 
+        REFERENCES clientes(cliente_id),
+    CONSTRAINT FK_ventas_moneda FOREIGN KEY (moneda_id) 
+        REFERENCES monedas(moneda_id),
+    CONSTRAINT FK_ventas_canal FOREIGN KEY (canal_id) 
+        REFERENCES canales(canal_id)
+);
+```
+
+**Column Details:**
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `venta_id` | INT | PRIMARY KEY | Unique sale identifier |
+| `cliente_id` | INT | NOT NULL, FK | Reference to clientes |
+| `fecha` | DATE | - | Sale date (proper date type) |
+| `total` | DECIMAL(18,2) | NOT NULL | Sale amount with 2 decimal places |
+| `moneda_id` | INT | NOT NULL, FK | Reference to monedas |
+| `canal_id` | INT | NOT NULL, FK | Reference to canales |
+| `fecha_creacion` | DATETIME | DEFAULT | Record creation timestamp |
+
+**Foreign Key Constraints:**
+
+```sql
+CONSTRAINT FK_ventas_cliente FOREIGN KEY (cliente_id) 
+    REFERENCES clientes(cliente_id)
+
+CONSTRAINT FK_ventas_moneda FOREIGN KEY (moneda_id) 
+    REFERENCES monedas(moneda_id)
+
+CONSTRAINT FK_ventas_canal FOREIGN KEY (canal_id) 
+    REFERENCES canales(canal_id)
+```
+
+**Key Characteristics:**
+- Multiple FOREIGN KEY relationships
+- Proper DECIMAL type for monetary values
+- DATE type for temporal queries
+- Referential integrity enforced on all relationships
+
+## Indexes
+
+Performance-optimized indexes on foreign keys and commonly queried columns.
+
+```sql
+-- Customer Indexes
+CREATE INDEX IX_clientes_ciudad_id ON clientes(ciudad_id);
+CREATE INDEX IX_clientes_segmento_id ON clientes(segmento_id);
+
+-- Sales Indexes
+CREATE INDEX IX_ventas_cliente_id ON ventas(cliente_id);
+CREATE INDEX IX_ventas_fecha ON ventas(fecha);
+CREATE INDEX IX_ventas_moneda_id ON ventas(moneda_id);
+CREATE INDEX IX_ventas_canal_id ON ventas(canal_id);
+```
+
+**Index Strategy:**
+
+| Index | Type | Purpose |
+|-------|------|----------|
+| `IX_clientes_ciudad_id` | Non-clustered | JOIN optimization with ciudades |
+| `IX_clientes_segmento_id` | Non-clustered | JOIN optimization with segmentos |
+| `IX_ventas_cliente_id` | Non-clustered | JOIN optimization with clientes |
+| `IX_ventas_fecha` | Non-clustered | Date range queries and aggregations |
+| `IX_ventas_moneda_id` | Non-clustered | JOIN optimization with monedas |
+| `IX_ventas_canal_id` | Non-clustered | JOIN optimization with canales |
+
+**Performance Benefits:**
+- Faster JOIN operations on foreign keys
+- Optimized date-based queries on sales data
+- Improved aggregation performance
+- Reduced query execution time for reports
+
+## IDENTITY Columns
+
+Dimension tables use SQL Server's IDENTITY property for auto-incrementing primary keys:
+
+```sql
+ciudad_id INT PRIMARY KEY IDENTITY(1,1)
+```
+
+**Parameters:**
+- **Seed**: 1 (starting value)
+- **Increment**: 1 (step size)
+
+**Behavior:**
+- Automatically generates unique sequential IDs
+- Cannot insert explicit values without `SET IDENTITY_INSERT ON`
+- Maintains sequence even after deletions
+
+## Entity Relationship Diagram
+
+```
+ciudades (1) ----< (N) clientes (1) ----< (N) ventas
+                       ^
+                       |
+segmentos (1) --------+
+
+monedas (1) ----< (N) ventas
+canales (1) ----< (N) ventas
+```
+
+**Cardinality:**
+- One ciudad to many clientes
+- One segmento to many clientes
+- One cliente to many ventas
+- One moneda to many ventas
+- One canal to many ventas
+
+## Table Creation Order
+
+Tables must be created in dependency order to satisfy foreign key constraints:
+
+1. **Dimension Tables** (no dependencies)
+   - ciudades
+   - segmentos
+   - canales
+   - monedas
+
+2. **Fact Tables** (with dependencies)
+   - clientes (depends on ciudades, segmentos)
+   - ventas (depends on clientes, monedas, canales)
+
+3. **Indexes** (after all tables exist)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Schema Generation" icon="code" href="/database/schema-generation">
+    Learn how DDL scripts are generated
+  </Card>
+  <Card title="SQL Server Deployment" icon="rocket" href="/database/sql-server-deployment">
+    Deploy the database to SQL Server
+  </Card>
+</CardGroup>

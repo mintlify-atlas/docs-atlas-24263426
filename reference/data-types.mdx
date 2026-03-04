@@ -1,0 +1,277 @@
+---
+title: "Data Types"
+description: "SQL Server data types used in PruebaETL database schema"
+---
+
+## Overview
+
+PruebaETL uses specific SQL Server data types to ensure data integrity, proper storage, and optimal performance. This reference documents all data types used in the database schema.
+
+---
+
+## SQL Server Data Types
+
+### NVARCHAR
+
+**Description:** Variable-length Unicode string data type that supports international characters.
+
+**Usage in PruebaETL:**
+- `NVARCHAR(255)` - Cliente names
+- `NVARCHAR(100)` - City names
+- `NVARCHAR(50)` - Segments, channels, date strings in raw tables
+- `NVARCHAR(10)` - Currency codes
+
+**Why Unicode?** PruebaETL handles Spanish text with special characters (á, é, í, ó, ú, ñ, ü) and requires full Unicode support for data integrity.
+
+```sql
+CREATE TABLE clientes (
+    cliente_id INT PRIMARY KEY,
+    nombre NVARCHAR(255) NOT NULL,  -- Supports "Raúl Pérez"
+    ...
+);
+```
+
+<Note>
+  NVARCHAR uses 2 bytes per character. Use it for all text fields that may contain special characters.
+</Note>
+
+---
+
+### DECIMAL
+
+**Description:** Exact numeric data type with fixed precision and scale.
+
+**Usage in PruebaETL:**
+- `DECIMAL(18,2)` - Monetary amounts (total sales)
+
+**Format:**
+- 18 digits total precision
+- 2 digits after decimal point
+- Range: -999,999,999,999,999.99 to 999,999,999,999,999.99
+
+**Why DECIMAL?** Financial calculations require exact precision. FLOAT/REAL can introduce rounding errors.
+
+```sql
+CREATE TABLE ventas (
+    venta_id INT PRIMARY KEY,
+    total DECIMAL(18,2) NOT NULL,  -- Exact monetary values
+    ...
+);
+```
+
+<Warning>
+  Never use FLOAT or REAL for monetary values. Always use DECIMAL for financial data.
+</Warning>
+
+---
+
+### DATE
+
+**Description:** Stores only the date (year, month, day) without time component.
+
+**Usage in PruebaETL:**
+- Cliente registration dates (`fecha_registro`)
+- Sale transaction dates (`fecha`)
+
+**Format:** `YYYY-MM-DD`
+
+**Storage:** 3 bytes
+
+**Range:** 0001-01-01 to 9999-12-31
+
+```sql
+CREATE TABLE clientes (
+    cliente_id INT PRIMARY KEY,
+    fecha_registro DATE,  -- Example: 2024-11-23
+    ...
+);
+```
+
+<Tip>
+  Use DATE instead of DATETIME when you don't need time information. It saves storage space (3 bytes vs 8 bytes).
+</Tip>
+
+---
+
+### DATETIME
+
+**Description:** Stores both date and time with precision to milliseconds.
+
+**Usage in PruebaETL:**
+- Audit timestamps (`fecha_creacion`, `fecha_actualizacion`)
+- Raw data load timestamps (`fecha_carga`)
+
+**Format:** `YYYY-MM-DD HH:MM:SS.mmm`
+
+**Storage:** 8 bytes
+
+**Range:** 1753-01-01 to 9999-12-31
+
+**Precision:** 3.33 milliseconds
+
+```sql
+CREATE TABLE clientes (
+    cliente_id INT PRIMARY KEY,
+    fecha_creacion DATETIME DEFAULT GETDATE(),
+    fecha_actualizacion DATETIME DEFAULT GETDATE(),
+    ...
+);
+```
+
+<Note>
+  GETDATE() is used as default value to automatically capture creation and update timestamps.
+</Note>
+
+---
+
+### INT
+
+**Description:** 4-byte integer data type.
+
+**Usage in PruebaETL:**
+- Primary keys (with IDENTITY for auto-increment)
+- Foreign keys
+- All ID fields
+
+**Range:** -2,147,483,648 to 2,147,483,647
+
+**Storage:** 4 bytes
+
+```sql
+CREATE TABLE ciudades (
+    ciudad_id INT PRIMARY KEY IDENTITY(1,1),  -- Auto-incrementing
+    ...
+);
+
+CREATE TABLE clientes (
+    cliente_id INT PRIMARY KEY,  -- Preserved from CSV
+    ciudad_id INT NOT NULL,      -- Foreign key
+    ...
+);
+```
+
+---
+
+## Data Type Selection Guidelines
+
+### Text Data
+
+| Scenario | Data Type | Example |
+|----------|-----------|----------|
+| Names, descriptions | `NVARCHAR(255)` | Cliente names |
+| Short codes | `NVARCHAR(10)` | Currency codes (USD, DOP) |
+| Medium text | `NVARCHAR(100)` | City names |
+| Categories | `NVARCHAR(50)` | Segments, channels |
+
+### Numeric Data
+
+| Scenario | Data Type | Example |
+|----------|-----------|----------|
+| Monetary amounts | `DECIMAL(18,2)` | Sale totals |
+| IDs and counters | `INT` | Primary/foreign keys |
+
+### Date/Time Data
+
+| Scenario | Data Type | Example |
+|----------|-----------|----------|
+| Business dates | `DATE` | Registration date, sale date |
+| Audit timestamps | `DATETIME` | Created at, updated at |
+
+---
+
+## Special Considerations
+
+### NULL vs NOT NULL
+
+**NOT NULL fields:**
+- Primary keys
+- Foreign keys
+- Required business fields (nombre, total)
+
+**Nullable fields:**
+- Optional dates (fecha_registro)
+- Historical audit fields
+
+```sql
+-- Required field
+nombre NVARCHAR(255) NOT NULL
+
+-- Optional field
+fecha_registro DATE  -- Can be NULL
+```
+
+### IDENTITY Property
+
+**Used for:** Auto-incrementing primary keys in master tables.
+
+**Syntax:** `IDENTITY(seed, increment)`
+
+```sql
+CREATE TABLE ciudades (
+    ciudad_id INT PRIMARY KEY IDENTITY(1,1),  -- Starts at 1, increments by 1
+    ...
+);
+```
+
+<Warning>
+  Do not use IDENTITY for business tables (clientes, ventas) where IDs come from source data.
+</Warning>
+
+### DEFAULT Values
+
+**Automatic timestamps:**
+
+```sql
+fecha_creacion DATETIME DEFAULT GETDATE()
+fecha_carga DATETIME DEFAULT GETDATE()
+```
+
+---
+
+## Complete Schema Example
+
+```sql
+-- Master table with IDENTITY
+CREATE TABLE ciudades (
+    ciudad_id INT PRIMARY KEY IDENTITY(1,1),
+    nombre NVARCHAR(100) NOT NULL UNIQUE,
+    fecha_creacion DATETIME DEFAULT GETDATE()
+);
+
+-- Business table with foreign keys
+CREATE TABLE clientes (
+    cliente_id INT PRIMARY KEY,
+    nombre NVARCHAR(255) NOT NULL,
+    ciudad_id INT NOT NULL,
+    segmento_id INT NOT NULL,
+    fecha_registro DATE,
+    fecha_creacion DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_clientes_ciudad FOREIGN KEY (ciudad_id) 
+        REFERENCES ciudades(ciudad_id)
+);
+
+-- Transaction table with DECIMAL for money
+CREATE TABLE ventas (
+    venta_id INT PRIMARY KEY,
+    cliente_id INT NOT NULL,
+    fecha DATE,
+    total DECIMAL(18,2) NOT NULL,
+    moneda_id INT NOT NULL,
+    fecha_creacion DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_ventas_cliente FOREIGN KEY (cliente_id) 
+        REFERENCES clientes(cliente_id)
+);
+```
+
+---
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Functions Reference" icon="code" href="/reference/functions">
+    Learn about data normalization functions
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/reference/troubleshooting">
+    Common data type issues and solutions
+  </Card>
+</CardGroup>
