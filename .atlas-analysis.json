@@ -1,0 +1,72 @@
+{
+  "projectType": "data-platform",
+  "projectName": "PruebaETL",
+  "projectDescription": "ETL tool for normalizing customer and sales data with SQL Server database generation",
+  "theme": "sequoia",
+  "primaryColor": "#2563eb",
+  "lightColor": "#60a5fa",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting Started",
+        "pages": [
+          "introduction",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/etl-process",
+          "concepts/normalization",
+          "concepts/database-schema"
+        ]
+      },
+      {
+        "group": "Data Processing",
+        "pages": [
+          "processing/customer-normalization",
+          "processing/sales-normalization",
+          "processing/encoding-handling"
+        ]
+      },
+      {
+        "group": "Database",
+        "pages": [
+          "database/schema-generation",
+          "database/table-structure",
+          "database/sql-server-deployment"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/data-types",
+          "reference/functions",
+          "reference/troubleshooting"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-encoding CSV file support (UTF-8, Latin-1, CP1252)",
+    "Automatic data normalization and cleaning",
+    "Relational database schema generation",
+    "SQL Server script generation with foreign keys and indexes",
+    "Raw data preservation for audit trails",
+    "Flexible date format parsing and normalization"
+  ],
+  "publicApiSurface": [
+    "normalizar_datos.py - Customer data normalization",
+    "normalizar_ventas.py - Sales data normalization",
+    "crear_base_datos.py - SQL Server database script generation",
+    "normalizar_fecha() - Date normalization function",
+    "limpiar_texto() - Text cleaning function",
+    "normalizar_numero() - Number normalization function",
+    "procesar_clientes() - Customer processing pipeline",
+    "procesar_ventas() - Sales processing pipeline",
+    "generar_sql_crear_bd() - Database DDL generation",
+    "generar_sql_insertar_datos() - Data insertion script generation"
+  ]
+}
