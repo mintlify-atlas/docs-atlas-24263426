@@ -138,6 +138,23 @@ Before starting, ensure you have:
     </Accordion>
   </Step>
 
+  <Step title="Organize Normalized Files">
+    Move the generated CSV files into a `cleanData` directory for SQL script generation:
+
+    ```bash
+    # Create the directory
+    mkdir cleanData
+
+    # Move normalized files
+    mv ciudades.csv segmentos.csv clientes_normalizados.csv cleanData/
+    mv canales.csv monedas.csv ventas_normalizadas.csv cleanData/
+    ```
+
+    <Note>
+      The SQL generation script expects normalized files in the `cleanData/` directory. The original input files should remain in the project root.
+    </Note>
+  </Step>
+
   <Step title="Generate SQL Server Script">
     Create the database schema and INSERT statements:
 

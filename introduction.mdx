@@ -76,6 +76,17 @@ mode: custom
       This creates normalized sales files with proper data types and reference tables for channels and currencies.
     </Step>
 
+    <Step title="Organize files">
+      Move the generated CSV files into a cleanData directory.
+      
+      ```bash
+      mkdir cleanData
+      mv *.csv cleanData/
+      # Move original input files back to root
+      mv cleanData/clientes_prueba_mas_datos.csv cleanData/ventas_prueba_mas_datos.csv .
+      ```
+    </Step>
+
     <Step title="Generate and execute SQL script">
       Create the SQL Server database schema and load your normalized data.
       
